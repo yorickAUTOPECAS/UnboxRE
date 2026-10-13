@@ -434,12 +434,22 @@ function Install-Tool {
 $tools = Get-ManifestTools
 $order = @('ghidra', 'x64dbg', 'rea', 'x64dbg-mcp')
 
+# `-Tool a,b` sob `powershell -File` chega como UMA string ("a,b"): -File não
+# constrói arrays, ao contrário de um prompt interativo. Achado ao pedir
+# `-Tool x64dbg,x64dbg-mcp`, que morria com "slug desconhecido: x64dbg,x64dbg-mcp".
+# Separamos a vírgula aqui para que a CLI documentada funcione nos dois modos
+# (e o array nativo `-Tool a -Tool b` também).
+$Tool = @($Tool | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+
 if ($Tool.Count -eq 0 -or ($Tool -contains 'all')) {
     $selected = $order
 } else {
     $selected = @($Tool | Where-Object { $tools.PSObject.Properties.Name -contains $_ })
     $unknown = @($Tool | Where-Object { -not ($tools.PSObject.Properties.Name -contains $_) })
-    foreach ($u in $unknown) { Write-Status 'FAIL' "slug desconhecido: $u" ("use um destes: " + ($order -join ', ')) }
+    # Write-Status aceita (Level, Message): o hint vai DENTRO da mensagem. Com um
+    # terceiro argumento a própria mensagem de erro morria com
+    # "não é possível localizar um parâmetro posicional", escondendo a causa real.
+    foreach ($u in $unknown) { Write-Status 'FAIL' "slug desconhecido: $u (use um destes: $($order -join ', '))" }
     if ($selected.Count -eq 0) { exit 2 }
 }
 

@@ -127,10 +127,16 @@ After that fix: **CI run [38467610746](https://github.com/yorickAUTOPECAS/UnboxR
 
 ## 5. Not proven (explicit limitations)
 
-- **x64dbg-MCP live call.** The REA MCP bridge is now proven end to end (see §2b).
-  The x64dbg-MCP server answers only with the x64dbg GUI open, which a headless
-  host/CI session cannot provide — installed + loadable is proven, the live call is a
-  manual step (`docs/05-mcp.md`).
+- ~~**x64dbg-MCP live call.** …the live call is a manual step.~~ **Closed the same
+  day:** `scripts/start-x64dbg.ps1 -Check` now automates the whole path — it launches
+  x64dbg minimised (reusing an already-open instance instead of fighting for the
+  port), waits for `:9094`, resolves the token where the plugin actually writes it
+  (`x64dbg/release/x64/mcp_config.json`) and runs the real MCP call. Observed:
+  `initialize` → *x64dbg-MCP Server 1.6*, `tools/list` → **80 tools**,
+  `tools/call GetDebugState` → `isDebugging: false / NO_TARGET`, exit 0. `-Stop`
+  ends the instance it launched. What still requires a human: x64dbg is a GUI, so a
+  headless CI runner cannot host it — the automation replaces *manual steps*, not the
+  GUI itself.
 - ~~**VMProtect / Themida positive controls.** Only UPX was sample-tested end to end…~~
   **Closed the same day, in a later round:** official DEMO builds of both protectors
   produced real samples from the same target, and the detector flags all of them —
@@ -155,9 +161,19 @@ After that fix: **CI run [38467610746](https://github.com/yorickAUTOPECAS/UnboxR
   firmware trio ubireader/sasquatch/firmware-mod-kit) are exactly the ones with no
   readable upstream LICENSE — the registry only holds rows a primary source can
   confirm. See `reports/auditoria-licencas.md` §5.
-- **The 570 MB Ghidra / 31 MB x64dbg downloads** were resolved (URLs + asset match) but
-  not re-downloaded on this machine (both were already present). The extraction + marker
-  logic was exercised on the MCP plugin.
+- ~~**The 570 MB Ghidra / 31 MB x64dbg downloads** were resolved (URLs + asset match)
+  but not re-downloaded on this machine…~~ **Closed the same day:** each of the three
+  core tools was fetched again from its real upstream, with the existing install moved
+  aside first so nothing could be served from what was already there. Evidence (all
+  exit 0): REA → `rea-agents@6.4.0` + `npm install` (143 packages) and the MCP bridge
+  answering (`smoke-mcp.mjs`: initialize + tools/list 170); x64dbg → snapshot
+  `2026-05-27` (30.1 MB) plus the MCP plugin v1.6 into both architectures; Ghidra →
+  the cached zip **deleted first** so the 569,649,598-byte `ghidra_12.1.4_PUBLIC_20260921.zip`
+  was downloaded again from the network, extracted, and then used for a real headless
+  analysis (`analyzeHeadless` → `REPORT: Analysis succeeded`, exit 0). The one part the
+  run found broken: `-Tool x64dbg,x64dbg-mcp` under `powershell -File` died with
+  "slug desconhecido" (the error message itself crashed on an extra argument), both
+  fixed in `fetch-tools.ps1` — the comma form is what `docs/05-mcp.md` documents.
 
 ## 6. Reproduce the whole verification
 

@@ -37,18 +37,42 @@ Três servidores, três papéis distintos:
 
 ### 2.1 Subida
 
-1. Compile (`.\scripts\bootstrap-windows.ps1 -Profile core`) ou copie o `dist/` de um
-   release para a raiz do x64dbg.
+**Um comando (recomendado):**
+
+```powershell
+PS> .\scripts\start-x64dbg.ps1 -Check    # sobe minimizado, espera a porta e chama o MCP de verdade
+PS> .\scripts\start-x64dbg.ps1 -Stop     # encerra o que ele subiu
+```
+
+O script reaproveita um x64dbg já aberto em vez de subir um segundo (conflito de
+porta), grava o PID em `.cache/run/` e com `-Check` delega ao
+`scripts/mcp-x64dbg-smoke.mjs` — que faz `initialize → tools/list → tools/call`.
+Saída real nesta máquina (2026-10-13):
+
+```
+[OK  ] porta 9094 respondendo (PID 21476)
+[OK  ] token do plugin: x64dbg\release\x64\mcp_config.json
+[OK  ] initialize    x64dbg-MCP Server 1.6 (protocolo 2024-11-05)
+[OK  ] tools/list    80 tools expostas
+[OK  ] tools/call GetDebugState  isDebugging: false status: NO_TARGET
+```
+
+**Na mão:**
+
+1. Compile (`.\scripts\bootstrap-windows.ps1 -Profile core`) ou rode
+   `.\scripts\fetch-tools.ps1 -Tool x64dbg,x64dbg-mcp -Apply` (release pré-compilado).
 2. Abra o x64dbg (`x96dbg.exe`). O plugin carrega sozinho e sobe o servidor HTTP.
-3. No primeiro run ele **gera o token** e grava em `x64dbg/mcp_config.json`.
+3. No primeiro run ele **gera o token** e grava em
+   `x64dbg/release/<arch>/mcp_config.json` — **ao lado do `x64dbg.exe`**, não na raiz
+   `x64dbg/` (a raiz só é aceita como legado).
 4. Para mudar porta/token: menu **Plugins → x64dbg-MCP Server → Configure MCP Server…**
    (o servidor reinicia ao salvar).
 
 ### 2.2 Verificação
 
 ```powershell
-PS> Get-Content x64dbg\mcp_config.json          # mostra porta + token (NÃO comitar)
-PS> Test-NetConnection 127.0.0.1 -Port 9094     # TcpTestSucceeded = True
+PS> Get-Content x64dbg\release\x64\mcp_config.json   # mostra porta + token (NÃO comitar)
+PS> Test-NetConnection 127.0.0.1 -Port 9094           # TcpTestSucceeded = True
 ```
 
 ```bash
