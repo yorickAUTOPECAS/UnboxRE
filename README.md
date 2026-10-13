@@ -134,6 +134,7 @@ Automação:
 | [scripts/bootstrap-wsl.sh](scripts/bootstrap-wsl.sh) | Provisionamento da toolchain Linux dentro do WSL |
 | [scripts/gen-mcp-config.mjs](scripts/gen-mcp-config.mjs) | Gera/valida os blocos `mcpServers` para cada cliente de IA |
 | [scripts/identify-protections.mjs](scripts/identify-protections.mjs) | Triagem embutida de packer/protetor (UPX, VMProtect, Themida, ASPack…), sem dependência externa |
+| [scripts/smoke-mcp.mjs](scripts/smoke-mcp.mjs) | Prova que a ponte MCP do REA sobe e responde (handshake `initialize` + `tools/list`) |
 | [scripts/check-consistency.mjs](scripts/check-consistency.mjs) | Teste de regressão offline: doc ↔ código ↔ licenças divergindo, comando/cliente/perfil inexistente |
 | [scripts/verify-licenses.mjs](scripts/verify-licenses.mjs) | Confere cada licença declarada contra a fonte primária (rede; job de CI) |
 | [scripts/new-case.ps1](scripts/new-case.ps1) | Cria o esqueleto de um caso em `work/<alvo>/` com procedência e hash |

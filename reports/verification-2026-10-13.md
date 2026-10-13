@@ -52,6 +52,22 @@ machine. Zig is only needed if you choose to build from source (`re-build.ps1`).
 `health-check.ps1 -Json`: `{"ok":36,"warn":4,"fail":0}` on this machine after the
 install.
 
+## 2b. The REA MCP bridge starts and answers a real call
+
+The REA bridge is stdio, so it can be proven in a headless session (and in CI).
+`scripts/smoke-mcp.mjs` speaks the MCP protocol to `rea-main/scripts/rea.mjs mcp`:
+
+```bash
+node scripts/smoke-mcp.mjs
+# initialize -> serverInfo: {"name":"rea","version":"6.4.0"}
+# tools/list -> 172 ferramentas (ex.: annotate_native_function, inspect_native_load_image, ...)
+# [OK] a ponte MCP sobe e responde a uma chamada real.  (exit 0)
+```
+
+Negative control: a missing entrypoint exits 2 with a clear message. The same
+handshake passes against a fresh `npm install rea-agents` (170 tools), which is what
+the `mcp-smoke` CI job runs.
+
 ## 3. License accuracy — five real errors, corrected from the primary source
 
 `scripts/verify-licenses.mjs` opens the upstream `LICENSE` (raw URL) and cross-checks
@@ -88,6 +104,9 @@ installs has a credit line in `THIRD_PARTY_NOTICES.md`.
   **`gen-mcp-config.mjs --list --json` emits parseable JSON** · **`check-consistency.mjs`**.
 - **licenses** (new job, networked): `verify-licenses.mjs --strict`, using
   `secrets.GITHUB_TOKEN` to lift the API rate limit.
+- **mcp-smoke** (new job): installs `rea-agents` from npm and runs
+  `smoke-mcp.mjs` — a real MCP `initialize` + `tools/list` handshake against the
+  REA bridge.
 - **secrets**: unchanged (no third-party binary tracked, no sensitive file tracked).
 
 All of the new steps were run locally with the same commands; every `.ps1` parses
@@ -95,9 +114,10 @@ under Windows PowerShell 5.1 and every script exits 0.
 
 ## 5. Not proven (explicit limitations)
 
-- **No live MCP `tools/list`.** x64dbg-MCP answers only with the x64dbg GUI open, which
-  a headless host/CI session cannot do. Installed + loadable is proven; the live call
-  is a manual step (`docs/05-mcp.md`).
+- **x64dbg-MCP live call.** The REA MCP bridge is now proven end to end (see §2b).
+  The x64dbg-MCP server answers only with the x64dbg GUI open, which a headless
+  host/CI session cannot provide — installed + loadable is proven, the live call is a
+  manual step (`docs/05-mcp.md`).
 - **VMProtect / Themida positive controls.** Only UPX was sample-tested end to end
   (`reports/evidence-packer-upx.md`); the other signatures are code-reviewed, not
   sample-tested — no such sample was available.
@@ -116,6 +136,7 @@ under Windows PowerShell 5.1 and every script exits 0.
 ```bash
 node scripts/check-consistency.mjs        # offline: docs <-> code <-> licenses, exit 0
 node scripts/verify-licenses.mjs          # network: licenses vs primary source, exit 0
+node scripts/smoke-mcp.mjs                # REA MCP handshake, exit 0 (needs rea-main)
 node scripts/gen-mcp-config.mjs --list --json   # valid JSON, exit 0
 powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/health-check.ps1 -Json   # fail:0
 powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/fetch-tools.ps1          # dry-run plan

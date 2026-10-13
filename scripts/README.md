@@ -13,15 +13,21 @@ não quebra nada, e nada é instalado/compilado/copiado sem uma flag explícita
 
 | Script | Ambiente | O que faz | Escreve? |
 |---|---|---|---|
+| `fetch-tools.ps1` | Windows (PS 5.1/7) | baixa o núcleo de terceiros do upstream (Ghidra, x64dbg, REA, MCP), com checksum | com `-Apply` |
+| `fetch-tools.sh` | Git Bash / WSL | o mesmo (delega ao `.ps1`; no Linux faz ghidra+rea) | com `--apply` |
 | `health-check.ps1` | Windows (PS 5.1/7) | diagnóstico completo; `-Fix-Paths` cria diretórios e repara `GHIDRA_INSTALL_DIR`/`JAVA_HOME` | só com `-Fix-Paths` |
 | `health-check.sh` | Git Bash / WSL | versão POSIX do diagnóstico | não |
-| `bootstrap-windows.ps1` | Windows | instala ferramentas por perfil (winget/choco/pip/npm) | com `-Apply` |
+| `bootstrap-windows.ps1` | Windows | instala por perfil (winget/choco/pip/npm); o perfil `core` roda o `fetch` antes | com `-Apply` |
 | `bootstrap-wsl.sh` | WSL (Ubuntu) | instala o lado Linux (gdb, angr, pwndbg, gef, unblob…) | com `--apply` (pede confirmação; `--yes` pula) |
-| `re-build.ps1` | Windows | compila x64dbg-MCP (Zig) e REA (npm), instala plugins | com `-Apply` |
+| `re-build.ps1` | Windows | compila x64dbg-MCP (Zig) e REA (npm) da FONTE — opcional | com `-Apply` |
 | `setup-ghidra-extensions.ps1` | Windows | instala extensões `.zip` no Ghidra | com `-Apply` |
 | `new-case.ps1` | Windows | cria `work/<slug>/` com intake e hash | sim |
 | `scan-secrets.ps1` | Windows (pwsh) | procura segredos e arquivos indevidos | não |
 | `gen-mcp-config.mjs` | Node | gera/valida as configs MCP por cliente | com `--apply` (grava em `config/mcp/generated/`) |
+| `identify-protections.mjs` | Node | triagem de packer/protetor por assinatura (UPX, VMProtect, Themida…) | não |
+| `check-consistency.mjs` | Node | regressão offline: doc ↔ código ↔ licenças divergindo | não |
+| `verify-licenses.mjs` | Node (rede) | confere cada licença contra a fonte primária | não |
+| `smoke-mcp.mjs` | Node | handshake MCP real (initialize + tools/list) contra o REA | não |
 | `lib/common.ps1` | — | helpers compartilhados (dot-source) | — |
 
 ---
@@ -32,20 +38,24 @@ não quebra nada, e nada é instalado/compilado/copiado sem uma flag explícita
 # 1. Veja o que falta
 .\scripts\health-check.ps1
 
-# 2. Instale o toolchain e as ferramentas que você quer
-.\scripts\bootstrap-windows.ps1 -Profile core            # mostra o plano
-.\scripts\bootstrap-windows.ps1 -Profile core -Apply     # instala
+# 2. Busque o núcleo de terceiros (clone limpo não traz ghidra/, x64dbg/, rea-main/)
+.\scripts\fetch-tools.ps1                                # mostra o plano
+.\scripts\fetch-tools.ps1 -Apply                         # baixa do upstream
 
-# 3. Compile os componentes locais
+# 3. Instale o toolchain e as ferramentas que você quer
+.\scripts\bootstrap-windows.ps1 -Profile core            # mostra o plano
+.\scripts\bootstrap-windows.ps1 -Profile core -Apply     # instala (já inclui o fetch)
+
+# 4. (Opcional) compile os componentes da FONTE — o fetch já traz releases prontos
 .\scripts\re-build.ps1 -Apply
 
-# 4. (Opcional) provisione o lado Linux
+# 5. (Opcional) provisione o lado Linux
 wsl -d Ubuntu -- bash -lc "cd $(wslpath -u 'C:\Users\Admin\Desktop\UnboxRE') && bash scripts/bootstrap-wsl.sh --apply --yes"
 
-# 5. Gere as configs de MCP para o seu cliente
+# 6. Gere as configs de MCP para o seu cliente
 node .\scripts\gen-mcp-config.mjs --client claude-desktop --apply
 
-# 6. Confirme tudo
+# 7. Confirme tudo
 .\scripts\health-check.ps1
 ```
 
@@ -53,9 +63,11 @@ node .\scripts\gen-mcp-config.mjs --client claude-desktop --apply
 
 ## Perfis do bootstrap
 
-`-Profile` aceita: `core`, `static`, `dynamic`, `mobile`, `firmware`, `net`,
-`plugins`, `all`. Cada ferramenta carrega o motivo de existir e a licença; o
-bootstrap nunca instala nada fora do catálogo declarado.
+`-Profile` aceita: `fetch`, `core`, `static`, `dynamic`, `mobile`, `firmware`,
+`net`, `plugins`, `all`, além dos aliases usados na documentação — `formats`
+(= mobile+firmware), `network` (= net), `wsl`, `full` (= all). Cada ferramenta
+carrega o motivo de existir e a licença; o bootstrap nunca instala nada fora do
+catálogo declarado.
 
 ## Convenções
 
@@ -67,6 +79,11 @@ bootstrap nunca instala nada fora do catálogo declarado.
 
 ## CI
 
-`.github/workflows/ci.yml` valida, a cada push: arquivos obrigatórios, JSON dos
-templates MCP, sintaxe dos scripts shell, e roda o `scan-secrets` — a barreira que
-impede publicar um token ou um binário de alvo por engano.
+`.github/workflows/ci.yml` valida, a cada push:
+
+- **validate** — arquivos obrigatórios, JSON dos templates MCP, `shellcheck`,
+  sintaxe de todo `.ps1`/`.sh`/`.mjs`, `gen-mcp-config --list --json` e a
+  verificação de consistência offline;
+- **licenses** — cada licença declarada conferida contra o upstream (rede);
+- **mcp-smoke** — a ponte MCP do REA faz um handshake real;
+- **secrets** — a barreira que impede publicar um token ou um binário de alvo.

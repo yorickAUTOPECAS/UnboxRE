@@ -158,6 +158,22 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: node scripts/verify-licenses.mjs --strict
 
+  mcp-smoke:
+    name: Ponte MCP do REA sobe e responde
+    runs-on: ubuntu-latest
+    # A ponte MCP do REA é stdio: dá para provar num runner headless que ela
+    # inicia e responde a um handshake real (initialize + tools/list). O plugin
+    # x64dbg-MCP não entra aqui — ele só escuta com a GUI do x64dbg aberta.
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Instalar o REA do npm (terceiro, não versionado)
+        run: npm install --prefix .rea-ci --no-audit --no-fund rea-agents
+      - name: Handshake MCP real (initialize + tools/list)
+        run: node scripts/smoke-mcp.mjs .rea-ci/node_modules/rea-agents/scripts/rea.mjs
+
   secrets:
     name: Scan de segredos e binários
     runs-on: ubuntu-latest
