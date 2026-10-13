@@ -112,6 +112,19 @@ installs has a credit line in `THIRD_PARTY_NOTICES.md`.
 All of the new steps were run locally with the same commands; every `.ps1` parses
 under Windows PowerShell 5.1 and every script exits 0.
 
+**CI result.** On the first push the `validate` job **failed** — and that failure was
+the guard working: the link check flagged `docs/05-mcp.md` and
+`docs/02-catalogo-ferramentas.md` for linking into `rea-main/` and
+`x64dbg-mcp-server-main/`. Those are the fetched third-party trees, gitignored and
+absent from a clean checkout **by design**, so the links are not broken — they only
+resolve after `fetch-tools`. It passed locally because `rea-main/` existed here: a
+perfect illustration of the local/CI gap the job exists to close. The checker was
+fixed to ask git which targets it ignores (commit `2f7cb6e`), with a negative
+control proving a link to a tracked-but-missing file still fails.
+
+After that fix: **CI run [38467610746](https://github.com/yorickAUTOPECAS/UnboxRE/actions/runs/38467610746)
+= success**, all four jobs green (`validate`, `licenses`, `mcp-smoke`, `secrets`).
+
 ## 5. Not proven (explicit limitations)
 
 - **x64dbg-MCP live call.** The REA MCP bridge is now proven end to end (see §2b).
