@@ -226,7 +226,12 @@ $ curl -x http://127.0.0.1:8080 https://example.com -k   # deve passar pelo prox
 
 ---
 
-## 6. Fase 6 — `wsl`: laboratório Linux
+## 6. Fase 6 — `wsl`: laboratório Linux — **fora de escopo por ora**
+
+> O suporte atual do toolkit é **Windows 10/11**, e é onde o caminho crítico foi
+> testado de ponta a ponta. O laboratório Linux/WSL **não** foi validado nesta rodada:
+> o perfil continua documentado porque os scripts existem, mas trate-o como roadmap,
+> não como caminho suportado.
 
 ```powershell
 PS> .\scripts\bootstrap-wsl.sh          # executa dentro do WSL (dry-run, não instala)

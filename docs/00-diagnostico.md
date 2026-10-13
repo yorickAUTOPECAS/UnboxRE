@@ -84,6 +84,10 @@ maior consumidor; reserve ~60 GB se for rodar VMs com snapshots).
 | G7 | **Sem laboratório Linux** | ELF/DWARF, Android, firmware, angr, Qiling, AFL++ — tudo indisponível | WSL sem distro | `wsl --install -d Ubuntu-24.04` |
 | G8 | **Sem isolamento de execução** | Analisar amostra desconhecida no host é irreversível | sem VM/sandbox | Windows Sandbox + VM com snapshot |
 
+> **Escopo desta rodada: Windows 10/11.** É aqui que o caminho crítico está validado.
+> G7 (laboratório Linux), o debug Linux/macOS e os formatos ELF/Mach-O ficam
+> **fora de escopo por ora** — são roadmap, não bloqueios do caminho Windows.
+
 ### 3.2 Gaps de cobertura (por domínio pedido)
 
 | Domínio | Cobertura hoje | Falta (crítico primeiro) |
