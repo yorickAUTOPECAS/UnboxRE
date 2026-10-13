@@ -7,12 +7,17 @@
     Verifica, em ordem: layout do workspace, toolchain do host, ferramentas do núcleo,
     ferramentas do catálogo, variáveis de ambiente, servidores MCP e portas.
 
-    Não instala nada. Não modifica nada, exceto com -Fix-Paths, que apenas CRIA
-    diretórios ausentes e grava config/env/unboxre.env (nunca sobrescreve existente).
+    Não instala nada. Não modifica nada, exceto com -Fix-Paths, que CRIA diretórios
+    ausentes, grava config/env/unboxre.env (se ainda não existir) e CORRIGE
+    apontamentos obsoletos de GHIDRA_INSTALL_DIR e JAVA_HOME.
 
 .PARAMETER Fix-Paths
-    Cria os diretórios ausentes (plugins do x64dbg, work/, reports/, tools/) e grava
-    config/env/unboxre.env a partir do .example, se ainda não existir.
+    Cria os diretórios ausentes (plugins do x64dbg, work/, reports/, tools/), grava
+    config/env/unboxre.env a partir do .example e reescreve GHIDRA_INSTALL_DIR e
+    JAVA_HOME quando apontam para caminhos que não existem, usando a instalação que
+    está de fato em disco (ghidra/ghidra_*_PUBLIC e o JDK 21 LTS, o pin de
+    docs/04-instalacao.md). Variável de ambiente obsoleta é pior que ausente: o REA
+    falha depois, com erro obscuro, e o culpado parece ser outro.
 
 .PARAMETER Json
     Emite o resultado como JSON (para pipeline/CI) em vez de tabela colorida.
@@ -42,11 +47,30 @@ $ErrorActionPreference = 'Continue'
 . (Join-Path $PSScriptRoot 'lib\common.ps1')
 $root = Get-RepoRoot
 
-# Sem isto, um console em code page 437/850 transforma os acentos e setas da saída
-# em mojibake. Só afeta a exibição; nada é escrito em disco.
-if (-not $Json) {
-    try { [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false } catch { }
+# Caminhos do arquivo de ambiente. Vivem no escopo do script porque tanto o
+# diagnóstico (Test-Environment) quanto os reparos (-Fix-Paths em Test-CoreTools)
+# precisam gravar no MESMO arquivo.
+$envExamplePath = Join-Path $root 'config\env\unboxre.env.example'
+$envFilePath    = Join-Path $root 'config\env\unboxre.env'
+
+# Criado aqui, e não no meio dos testes: Test-CoreTools roda antes de
+# Test-Environment e já pode querer gravar GHIDRA_INSTALL_DIR no arquivo.
+$envFileCreated = $false
+if ($FixPaths -and -not (Test-PathExists $envFilePath) -and (Test-PathExists $envExamplePath)) {
+    Copy-Item -LiteralPath $envExamplePath -Destination $envFilePath -Force
+    $envFileCreated = $true
 }
+
+# Sem isto, um console em code page 437/850 transforma os acentos e setas da saída
+# em mojibake — e, com -Json, o JSON sai como bytes inválidos (json.load estoura).
+# Só afeta a exibição; nada é escrito em disco.
+try { [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false } catch { }
+
+# Contrato de saída do -Json, o mesmo já implementado em health-check.sh
+# ("Em --json o stdout tem que conter SÓ o objeto JSON"): as seções 1..7 imprimem
+# durante a coleta, antes do bloco final, e vazavam para o stdout. Sem esta flag o
+# `-Json | Set-Content` e qualquer json.load() quebravam no primeiro cabeçalho.
+$UnboxQuiet = [bool]$Json
 
 function Test-Layout {
     Write-Section '1. Layout do workspace'
@@ -118,15 +142,46 @@ function Test-HostToolchain {
         }
     }
 
-    # Java — exigido pelo Ghidra e pelo REA
-    $javaHome = $env:JAVA_HOME
-    $javaExe = Get-CommandVersion -Name 'java' -VersionArgs @('-version')
-    if ($javaHome -and (Test-PathExists (Join-Path $javaHome 'bin'))) {
-        Add-Result 'host:java' 'OK' "JAVA_HOME=$javaHome"
-    } elseif ($javaExe) {
-        Add-Result 'host:java' 'WARN' "java no PATH ($javaExe) mas JAVA_HOME não está definido" 'defina JAVA_HOME para o JDK do Ghidra'
+    # Java — exigido pelo Ghidra (Ghidra/application.properties: application.java.min=21)
+    # e pelo REA. O pin do toolkit é o JDK 21 LTS: ver docs/04-instalacao.md.
+    $jdkHome = Resolve-JdkHome
+    if ($jdkHome) {
+        $jdkMajor = Get-JdkMajorVersion $jdkHome
+        if ($jdkMajor -eq 21) {
+            Add-Result 'host:java' 'OK' "JDK $jdkMajor — $jdkHome"
+        } else {
+            Add-Result 'host:java' 'WARN' "JDK $jdkMajor em $jdkHome" 'o pin é o JDK 21 LTS; o Ghidra 12.1.4 aceita 21+ (application.java.min=21)'
+        }
+
+        # O repositório costuma trazer um JDK adicional (ghidra/jdk-27). Reportamos
+        # os dois: a escolha do pin fica visível em vez de implícita.
+        $jdkOutros = @(Get-ChildItem -Path (Join-Path $root 'ghidra\jdk*') -Directory -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -ne $jdkHome } |
+            ForEach-Object { "{0} (JDK {1})" -f $_.FullName, (Get-JdkMajorVersion $_.FullName) })
+        if ($jdkOutros.Count -gt 0) {
+            Add-Result 'host:java_alt' 'INFO' ("não padrão: " + ($jdkOutros -join ', ')) 'o default segue o pin (docs/00-diagnostico.md)'
+        }
+        # JAVA_HOME: mesmo tratamento do GHIDRA_INSTALL_DIR — avisa e, com
+        # -Fix-Paths, aponta para o JDK que está em disco.
+        $javaHomeOk = $env:JAVA_HOME -and (Test-PathExists (Join-Path $env:JAVA_HOME 'bin\java.exe'))
+        if ($javaHomeOk) {
+            Add-Result 'host:java_home' 'OK' "JAVA_HOME=$($env:JAVA_HOME)"
+        } elseif ($FixPaths) {
+            $javaAntes = $env:JAVA_HOME
+            $null = Set-EnvFileValue -Path $envFilePath -Key 'JAVA_HOME' -Value $jdkHome -Apply
+            $env:JAVA_HOME = $jdkHome
+            if ($javaAntes) {
+                Add-Result 'host:java_home' 'OK' "corrigido: $javaAntes -> $jdkHome" 'gravado em config/env/unboxre.env'
+            } else {
+                Add-Result 'host:java_home' 'OK' "definido: $jdkHome" 'gravado em config/env/unboxre.env'
+            }
+        } else {
+            $problemaJava = 'JAVA_HOME não está definido nesta sessão'
+            if ($env:JAVA_HOME) { $problemaJava = "JAVA_HOME aponta para caminho inválido: $($env:JAVA_HOME)" }
+            Add-Result 'host:java_home' 'WARN' $problemaJava "rode -Fix-Paths para apontar $jdkHome"
+        }
     } else {
-        Add-Result 'host:java' 'FAIL' 'nenhum JDK encontrado' 'instale um JDK compatível com o Ghidra'
+        Add-Result 'host:java' 'FAIL' 'nenhum JDK >= 21 encontrado' 'instale o JDK 21 LTS (o Ghidra 12.1.4 não inicia abaixo disso)'
     }
 
     # Ferramentas de build de componentes locais
@@ -175,13 +230,9 @@ function Test-HostToolchain {
 function Test-CoreTools {
     Write-Section '3. Ferramentas do núcleo'
 
-    # Ghidra
-    $ghidraDir = Join-Path $root 'ghidra\ghidra_12.1.4_PUBLIC'
-    if (-not (Test-PathExists $ghidraDir)) {
-        $cand = Get-ChildItem -Path (Join-Path $root 'ghidra') -Directory -ErrorAction SilentlyContinue |
-                Where-Object { $_.Name -like 'ghidra_*_PUBLIC' } | Select-Object -First 1
-        if ($cand) { $ghidraDir = $cand.FullName }
-    }
+    # Ghidra — mesma descoberta usada pelo bootstrap e pelo re-build
+    # (Resolve-GhidraHome, em scripts/lib/common.ps1).
+    $ghidraDir = Resolve-GhidraHome
     if (Test-PathExists $ghidraDir) {
         Add-Result 'ghidra:install' 'OK' $ghidraDir
         $headless = Join-Path $ghidraDir 'support\analyzeHeadless.bat'
@@ -197,14 +248,30 @@ function Test-CoreTools {
         }
         # GHIDRA_INSTALL_DIR: definido E apontando para uma instalação que existe.
         # Uma variável obsoleta é pior que nenhuma — o REA falha com erro obscuro.
+        # Com -Fix-Paths o script não só avisa: reescreve config/env/unboxre.env e
+        # ajusta o ambiente DESTA sessão (nenhum processo altera o ambiente do pai,
+        # então continuar carregando o arquivo é responsabilidade do usuário).
+        $ghidraEnvOk = $false
         if ($env:GHIDRA_INSTALL_DIR) {
-            if (Test-PathExists (Join-Path $env:GHIDRA_INSTALL_DIR 'support\analyzeHeadless.bat')) {
-                Add-Result 'ghidra:env' 'OK' "GHIDRA_INSTALL_DIR=$($env:GHIDRA_INSTALL_DIR)"
+            $ghidraEnvOk = Test-PathExists (Join-Path $env:GHIDRA_INSTALL_DIR 'support\analyzeHeadless.bat')
+        }
+        if ($ghidraEnvOk) {
+            Add-Result 'ghidra:env' 'OK' "GHIDRA_INSTALL_DIR=$($env:GHIDRA_INSTALL_DIR)"
+        } elseif (-not $ghidraDir) {
+            Add-Result 'ghidra:env' 'FAIL' 'GHIDRA_INSTALL_DIR inválido E nenhum Ghidra instalado para apontar' 'extraia o Ghidra em ghidra/'
+        } elseif ($FixPaths) {
+            $ghidraAntes = $env:GHIDRA_INSTALL_DIR
+            $null = Set-EnvFileValue -Path $envFilePath -Key 'GHIDRA_INSTALL_DIR' -Value $ghidraDir -Apply
+            $env:GHIDRA_INSTALL_DIR = $ghidraDir
+            if ($ghidraAntes) {
+                Add-Result 'ghidra:env' 'OK' "corrigido: $ghidraAntes -> $ghidraDir" 'gravado em config/env/unboxre.env'
             } else {
-                Add-Result 'ghidra:env' 'WARN' "GHIDRA_INSTALL_DIR aponta para caminho inválido: $($env:GHIDRA_INSTALL_DIR)" "corrija para $ghidraDir em config/env/unboxre.env"
+                Add-Result 'ghidra:env' 'OK' "definido: $ghidraDir" 'gravado em config/env/unboxre.env'
             }
         } else {
-            Add-Result 'ghidra:env' 'WARN' 'GHIDRA_INSTALL_DIR não definido' 'defina para o REA encontrar o Ghidra (config/env/unboxre.env)'
+            $problema = 'GHIDRA_INSTALL_DIR não definido'
+            if ($env:GHIDRA_INSTALL_DIR) { $problema = "GHIDRA_INSTALL_DIR aponta para caminho inválido: $($env:GHIDRA_INSTALL_DIR)" }
+            Add-Result 'ghidra:env' 'WARN' $problema "rode .\scripts\health-check.ps1 -Fix-Paths para apontar $ghidraDir"
         }
     } else {
         Add-Result 'ghidra:install' 'FAIL' 'diretório do Ghidra não encontrado' 'confira ghidra/'
@@ -311,18 +378,18 @@ function Test-CatalogTools {
 
 function Test-Environment {
     Write-Section '5. Variáveis de ambiente'
-    $envExample = Join-Path $root 'config\env\unboxre.env.example'
-    $envReal = Join-Path $root 'config\env\unboxre.env'
 
-    if (Test-PathExists $envReal) {
-        Add-Result 'env:file' 'OK' 'config/env/unboxre.env presente'
-    } elseif (Test-PathExists $envExample) {
-        if ($FixPaths) {
-            Copy-Item -LiteralPath $envExample -Destination $envReal -Force
+    # A cópia .example -> real acontece no topo do script: o reparo de
+    # GHIDRA_INSTALL_DIR (seção 3) e de JAVA_HOME (seção 2) roda antes daqui e já
+    # precisa do arquivo existindo.
+    if (Test-PathExists $envFilePath) {
+        if ($envFileCreated) {
             Add-Result 'env:file' 'WARN' 'criado config/env/unboxre.env a partir do .example' 'revise os caminhos'
         } else {
-            Add-Result 'env:file' 'WARN' 'config/env/unboxre.env ausente' 'rode -Fix-Paths ou copie o .example'
+            Add-Result 'env:file' 'OK' 'config/env/unboxre.env presente'
         }
+    } elseif (Test-PathExists $envExamplePath) {
+        Add-Result 'env:file' 'WARN' 'config/env/unboxre.env ausente' 'rode -Fix-Paths ou copie o .example'
     } else {
         Add-Result 'env:file' 'FAIL' 'config/env/unboxre.env.example ausente' 'arquivo de referência do repositório faltando'
     }
@@ -450,7 +517,12 @@ try {
         if ($OutFile) {
             $dir = Split-Path -Parent $OutFile
             if ($dir -and -not (Test-PathExists $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
-            Set-Content -LiteralPath $OutFile -Value $jsonText -Encoding UTF8
+            # -Encoding UTF8 no PS 5.1 grava BOM e json.load() falha com
+            # "Unexpected UTF-8 BOM". Escrevemos UTF-8 sem BOM de propósito.
+            [System.IO.File]::WriteAllText(
+                [System.IO.Path]::GetFullPath($OutFile),
+                $jsonText,
+                (New-Object System.Text.UTF8Encoding $false))
         }
     } else {
         foreach ($r in $results) {
@@ -463,11 +535,14 @@ try {
         elseif ($warns.Count -gt 0) { $summaryColor = 'Yellow' }
         Write-Host ("  OK: {0}   WARN: {1}   FAIL: {2}" -f $oks.Count, $warns.Count, $fails.Count) -ForegroundColor $summaryColor
 
-        if ($fails.Count -gt 0) {
+        $acionaveis = @(@($fails) + @($warns) | Where-Object { $_.Fix })
+        if ($acionaveis.Count -gt 0) {
             Write-Host ''
             Write-Host '  Como corrigir:' -ForegroundColor Yellow
-            foreach ($f in $fails) {
-                Write-Host ("    · {0}: {1}" -f $f.Check, $f.Fix) -ForegroundColor Yellow
+            foreach ($f in $acionaveis) {
+                $tag = '[FAIL]'
+                if ($f.Level -ne 'FAIL') { $tag = '[WARN]' }
+                Write-Host ("    {0} {1}: {2}" -f $tag, $f.Check, $f.Fix) -ForegroundColor Yellow
             }
         }
         Write-Host ''
@@ -475,7 +550,13 @@ try {
 
     if ($fails.Count -gt 0) { exit 1 } else { exit 0 }
 } catch {
-    Write-Host ("ERRO no health-check: " + $_.Exception.Message) -ForegroundColor Red
-    Write-Host $_.ScriptStackTrace -ForegroundColor DarkGray
+    if ($Json) {
+        # stdout precisa continuar "só JSON": o erro é diagnóstico, vai para stderr.
+        [Console]::Error.WriteLine("ERRO no health-check: " + $_.Exception.Message)
+        [Console]::Error.WriteLine($_.ScriptStackTrace)
+    } else {
+        Write-Host ("ERRO no health-check: " + $_.Exception.Message) -ForegroundColor Red
+        Write-Host $_.ScriptStackTrace -ForegroundColor DarkGray
+    }
     exit 2
 }

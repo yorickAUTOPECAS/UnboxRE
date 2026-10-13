@@ -16,6 +16,15 @@ que a etapa passou.
 Node 24.18, npm 11.16, Java 21 LTS no PATH, JDK 27 em `ghidra/jdk-27`, Git 2.55,
 Rust 1.98, PowerShell 5.1, winget, Chocolatey, `uv` 0.11.
 
+**Pin de JDK (decisão documentada).** O Ghidra 12.1.4 declara
+`application.java.min=21` / `application.java.max=` (vazio, sem teto), então o JDK 27
+de `ghidra/jdk-27` também abre. Mesmo assim o toolkit **fixa o JDK 21 LTS como
+padrão**: é a versão com que o REA e o Ghidra foram verificados aqui, e evita
+`InaccessibleObjectException` em módulos que refletem `java.*`. O JDK 27 continua no
+repositório para uso pontual — troque só por projeto, não como padrão. O
+`health-check.ps1` reporta os dois (`host:java`, `host:java_alt`) e `-Fix-Paths`
+grava o pin em `config/env/unboxre.env`.
+
 **O bootstrap não faz** (por decisão de segurança/escopo):
 - não pede privilégio administrativo silenciosamente (avisa e você reexecuta elevado);
 - não altera configuração de sistema (firewall, Defender, variáveis de máquina) sem `-AllowSystemChanges`;
@@ -279,7 +288,8 @@ Ou, em um passo: `.\scripts\bootstrap-windows.ps1 -Profile full` (~1 h).
 | Sintoma | Causa | Correção |
 |---|---|---|
 | `python3` não encontrado / abre a Store | alias quebrado da Microsoft Store | use `py` ou `python`; o bootstrap normaliza via `uv` |
-| Ghidra reclama de versão do Java | `JAVA_HOME` apontando p/ JDK 27 | aponte para o JDK 21 LTS; o health-check avisa |
+| Ghidra reclama de versão do Java | `JAVA_HOME` apontando p/ JDK 27 | aponte para o JDK 21 LTS (o pin, §0) — ou rode `.\scripts\health-check.ps1 -Fix-Paths` |
+| `GHIDRA_INSTALL_DIR` apontando p/ pasta que não existe | Ghidra movido/renomeado depois de a variável ser exportada | `.\scripts\health-check.ps1 -Fix-Paths` reescreve `config/env/unboxre.env` com a instalação encontrada em `ghidra/` |
 | `zig build` falha com API desconhecida | Zig ≠ 0.14.0 | instale exatamente 0.14.0 |
 | x64dbg não mostra o plugin MCP | `plugins/` não existe ou falta o `.dp64` | crie a pasta, copie `dist/`, reinicie o x64dbg |
 | `rea doctor` não acha o Ghidra | `GHIDRA_INSTALL_DIR` não exportado | exporte o caminho absoluto |

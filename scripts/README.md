@@ -13,7 +13,7 @@ não quebra nada, e nada é instalado/compilado/copiado sem uma flag explícita
 
 | Script | Ambiente | O que faz | Escreve? |
 |---|---|---|---|
-| `health-check.ps1` | Windows (PS 5.1/7) | diagnóstico completo | só com `-Fix-Paths` |
+| `health-check.ps1` | Windows (PS 5.1/7) | diagnóstico completo; `-Fix-Paths` cria diretórios e repara `GHIDRA_INSTALL_DIR`/`JAVA_HOME` | só com `-Fix-Paths` |
 | `health-check.sh` | Git Bash / WSL | versão POSIX do diagnóstico | não |
 | `bootstrap-windows.ps1` | Windows | instala ferramentas por perfil (winget/choco/pip/npm) | com `-Apply` |
 | `bootstrap-wsl.sh` | WSL (Ubuntu) | instala o lado Linux (gdb, angr, pwndbg, gef, unblob…) | com `--apply` (pede confirmação; `--yes` pula) |

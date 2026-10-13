@@ -113,7 +113,9 @@ PS> node .\rea-main\scripts\rea.mjs mcp               # sobe o servidor MCP (std
 ```
 
 O REA descobre o Ghidra via `GHIDRA_INSTALL_DIR` e o Java via `JAVA_HOME`. Exporte os
-dois antes de subir (ou use o `config/env/unboxre.env.example`).
+dois antes de subir (ou use o `config/env/unboxre.env.example`). Se um deles estiver
+apontando para um caminho que não existe mais, `.\scripts\health-check.ps1 -Fix-Paths`
+reescreve `config/env/unboxre.env` com o Ghidra de `ghidra/` e o JDK 21 LTS.
 
 ### 3.2 O que ele traz
 
@@ -185,7 +187,7 @@ importam para MCP:
 | Variável | Usada por | Exemplo |
 |---|---|---|
 | `GHIDRA_INSTALL_DIR` | REA, GhidraMCP, `analyzeHeadless` | `C:\...\ghidra\ghidra_12.1.4_PUBLIC` |
-| `JAVA_HOME` | Ghidra, REA | `C:\...\ghidra\jdk-27` ou JDK 21 |
+| `JAVA_HOME` | Ghidra, REA | JDK 21 LTS (pin); `ghidra\jdk-27` existe, mas não é o padrão |
 | `X64DBG_TOKEN` | cliente MCP | lido de `x64dbg/mcp_config.json` |
 | `UNBOXRE_WORKSPACE` | scripts próprios | `C:\Users\Admin\Desktop\UnboxRE` |
 | `UNBOXRE_WORK` | scripts próprios | `%UNBOXRE_WORKSPACE%\work` |

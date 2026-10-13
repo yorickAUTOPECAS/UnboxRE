@@ -168,6 +168,142 @@ function Test-TcpPort {
     }
 }
 
+# ─── Descoberta dos runtimes do núcleo (Ghidra/JDK) ─────────────────────────
+#
+# Estes dois caminhos são o atrito nº 1 da instalação: uma variável de ambiente
+# obsoleta faz o REA falhar com erro obscuro. A descoberta mora aqui (e não no
+# health-check) para que o bootstrap e o re-build usem exatamente a mesma regra.
+
+function Resolve-GhidraHome {
+    <#
+        Caminho de uma instalação do Ghidra utilizável.
+        Ordem: -Explicit, $env:GHIDRA_INSTALL_DIR (se válido), <raiz>/ghidra/ghidra_*_PUBLIC
+        (maior versão primeiro).
+        "Válida" = tem support/analyzeHeadless.bat. Retorna $null se nada servir.
+    #>
+    param(
+        [string]$Explicit,
+        [string]$Root = (Get-RepoRoot)
+    )
+    foreach ($cand in @($Explicit, $env:GHIDRA_INSTALL_DIR)) {
+        if ($cand -and (Test-PathExists (Join-Path $cand 'support\analyzeHeadless.bat'))) {
+            return $cand
+        }
+    }
+    $base = Join-Path $Root 'ghidra'
+    if (Test-PathExists $base) {
+        $dirs = @(Get-ChildItem -LiteralPath $base -Directory -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -like 'ghidra_*_PUBLIC' } |
+            Sort-Object -Descending -Property @{
+                Expression = {
+                    $m = [regex]::Match($_.Name, 'ghidra_([0-9]+(?:\.[0-9]+)*)')
+                    if ($m.Success) { [version]$m.Groups[1].Value } else { [version]'0.0' }
+                }
+            })
+        foreach ($d in $dirs) {
+            if (Test-PathExists (Join-Path $d.FullName 'support\analyzeHeadless.bat')) {
+                return $d.FullName
+            }
+        }
+    }
+    return $null
+}
+
+function Get-JdkMajorVersion {
+    <#  Maior versão de um diretório de JDK pelo nome (jdk-21.0.12 → 21). 0 se ilegível.  #>
+    param([Parameter(Mandatory)][string]$Path)
+    $name = Split-Path -Leaf $Path
+    $m = [regex]::Match($name, '[0-9]+')
+    if ($m.Success) { return [int]$m.Value }
+    return 0
+}
+
+function Resolve-JdkHome {
+    <#
+        JDK para o Ghidra e para o REA.
+
+        Pin documentado (docs/04-instalacao.md): JDK 21 LTS. A fonte primária é
+        <Ghidra>/Ghidra/application.properties — `application.java.min=21` e
+        `application.java.max=` (sem teto), ou seja: 21 é a linha testada pelo
+        fornecedor e o resto é "deve funcionar". Preferimos o pin; versões acima
+        ficam como fallback.
+
+        Ordem: candidatos com a MAJOR do pin → acima do pin → abaixo do pin.
+        Retorna $null se nenhum candidato tem bin\java.exe.
+    #>
+    param(
+        [string]$Root = (Get-RepoRoot),
+        [int]$Pin = 21
+    )
+    $cands = New-Object System.Collections.ArrayList
+    $null = $cands.Add($env:JAVA_HOME)
+    foreach ($pattern in @('ghidra\jdk*', 'tools\jdk*', 'jdk*')) {
+        $base = Join-Path $Root $pattern
+        foreach ($d in @(Get-ChildItem -Path $base -Directory -ErrorAction SilentlyContinue)) {
+            $null = $cands.Add($d.FullName)
+        }
+    }
+    foreach ($base in @(
+        (Join-Path $env:ProgramFiles 'Java'),
+        (Join-Path $env:ProgramFiles 'Eclipse Adoptium'),
+        (Join-Path $env:ProgramFiles 'Microsoft'),
+        (Join-Path $env:ProgramFiles 'Amazon Corretto'),
+        (Join-Path $env:ProgramFiles 'Zulu')
+    )) {
+        foreach ($d in @(Get-ChildItem -Path (Join-Path $base 'jdk*') -Directory -ErrorAction SilentlyContinue)) {
+            $null = $cands.Add($d.FullName)
+        }
+    }
+
+    $valid = @($cands | Where-Object { $_ -and (Test-PathExists (Join-Path $_ 'bin\java.exe')) })
+    if ($valid.Count -eq 0) { return $null }
+
+    $pinned = @($valid | Where-Object { (Get-JdkMajorVersion $_) -eq $Pin })
+    if ($pinned.Count -gt 0) { return ($pinned | Sort-Object | Select-Object -First 1) }
+
+    $above = @($valid | Where-Object { (Get-JdkMajorVersion $_) -gt $Pin })
+    if ($above.Count -gt 0) {
+        return ($above | Sort-Object -Descending -Property @{ Expression = { Get-JdkMajorVersion $_ } } | Select-Object -First 1)
+    }
+    return ($valid | Sort-Object -Descending -Property @{ Expression = { Get-JdkMajorVersion $_ } } | Select-Object -First 1)
+}
+
+function Set-EnvFileValue {
+    <#
+        Grava KEY=VALUE em um arquivo de ambiente estilo .env, preservando
+        comentários e ordem. Substitui a primeira ocorrência ativa da chave;
+        acrescenta no fim se ela não existir. Cria o arquivo se faltar.
+        Retorna $true se escreveu.
+    #>
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)][string]$Key,
+        [Parameter(Mandatory)][string]$Value,
+        [switch]$Apply
+    )
+    if (-not $Apply) {
+        Write-Status 'INFO' "DRY-RUN: $Key=$Value em $Path"
+        return $false
+    }
+    $lines = @()
+    if (Test-PathExists $Path) { $lines = @(Get-Content -LiteralPath $Path -Encoding UTF8) }
+    $found = $false
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        if ($lines[$i] -match ('^\s*' + [regex]::Escape($Key) + '\s*=')) {
+            $lines[$i] = "$Key=$Value"
+            $found = $true
+            break
+        }
+    }
+    if (-not $found) { $lines += "$Key=$Value" }
+    $dir = Split-Path -Parent $Path
+    if ($dir -and -not (Test-PathExists $dir)) {
+        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+    }
+    Set-Content -LiteralPath $Path -Value $lines -Encoding UTF8
+    return $true
+}
+
 function Get-JsonFileSafe {
     <#  Lê JSON tolerando ausência/erro. Retorna $null em falha.  #>
     param([Parameter(Mandatory)][string]$Path)
@@ -202,6 +338,7 @@ function Write-JsonFile {
 
 function Write-Banner {
     param([Parameter(Mandatory)][string]$Title, [string]$Subtitle = '')
+    if ($script:UnboxQuiet) { return }   # ver contrato de -Json em health-check.sh
     $line = ('─' * 68)
     Write-Host ''
     Write-Host $line -ForegroundColor DarkCyan
@@ -212,6 +349,7 @@ function Write-Banner {
 
 function Write-Section {
     param([Parameter(Mandatory)][string]$Title)
+    if ($script:UnboxQuiet) { return }
     Write-Host ''
     Write-Host ("── " + $Title + " ") -ForegroundColor Cyan
 }

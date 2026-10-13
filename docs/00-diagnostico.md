@@ -94,7 +94,7 @@ maior consumidor; reserve ~60 GB se for rodar VMs com snapshots).
    reflexão em `java.*` podem estourar com `InaccessibleObjectException` em JDKs
    muito novos. → **Recomendação: manter o JDK 21 LTS do `PATH` como padrão do Ghidra**
    e usar o JDK 27 apenas para projetos que exijam. O `health-check` reporta ambos e
-   avisa se o Ghidra resolver para ≠21.
+   avisa se o Ghidra resolver para ≠21; `-Fix-Paths` grava o pin no env file.
 2. **`python3` da Microsoft Store quebrado.** Ferramentas que chamam literalmente
    `python3` falham em silêncio. → Normalizar via `uv` (gerencia 3.12) e expor um
    shim, ou usar o `py` launcher. O bootstrap valida `python -c "import sys"`.
