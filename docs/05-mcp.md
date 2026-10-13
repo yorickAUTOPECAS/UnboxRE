@@ -201,9 +201,10 @@ que você não cole o token à mão.
 ## 7. Geração de configuração
 
 ```powershell
-PS> node .\scripts\gen-mcp-config.mjs --client vscode --check   # valida sem escrever
-PS> node .\scripts\gen-mcp-config.mjs --client claude --write   # escreve o arquivo
-PS> node .\scripts\gen-mcp-config.mjs --list                    # clientes suportados
+PS> node .\scripts\gen-mcp-config.mjs --client vscode --check    # valida sem escrever
+PS> node .\scripts\gen-mcp-config.mjs --client claude-code --apply   # escreve em config/mcp/generated/
+PS> node .\scripts\gen-mcp-config.mjs --client claude-code --apply --install  # também no local real do cliente
+PS> node .\scripts\gen-mcp-config.mjs --list                     # clientes suportados
 ```
 
 Clientes e onde o arquivo mora:

@@ -16,8 +16,10 @@
     config/env/unboxre.env a partir do .example e reescreve GHIDRA_INSTALL_DIR e
     JAVA_HOME quando apontam para caminhos que não existem, usando a instalação que
     está de fato em disco (ghidra/ghidra_*_PUBLIC e o JDK 21 LTS, o pin de
-    docs/04-instalacao.md). Variável de ambiente obsoleta é pior que ausente: o REA
-    falha depois, com erro obscuro, e o culpado parece ser outro.
+    docs/04-instalacao.md). A correção vale para a sessão, para o env file E para o
+    ambiente do usuário (escopo User), de modo que a próxima janela já nasça certa.
+    Variável de ambiente obsoleta é pior que ausente: o REA falha depois, com erro
+    obscuro, e o culpado parece ser outro.
 
 .PARAMETER Json
     Emite o resultado como JSON (para pipeline/CI) em vez de tabela colorida.
@@ -74,22 +76,27 @@ $UnboxQuiet = [bool]$Json
 
 function Test-Layout {
     Write-Section '1. Layout do workspace'
+    # Fetch = $true marca os diretórios que são terceiros NÃO redistribuídos: um
+    # clone limpo não os tem, e a correção é baixá-los do upstream (fetch-tools),
+    # não "criar um diretório vazio". O x64dbg-MCP não entra aqui pelo diretório de
+    # fonte: o que importa é o plugin instalado (checado como mcp:plugin na §3).
     $expected = @(
-        @{ Path = 'docs';        Why = 'documentação' },
-        @{ Path = 'scripts';     Why = 'automação' },
-        @{ Path = 'config';      Why = 'templates de config' },
-        @{ Path = 'tools';       Why = 'ferramentas instaladas pelo bootstrap' },
-        @{ Path = 'work';        Why = 'área de trabalho por alvo (fora do Git)' },
-        @{ Path = 'reports';     Why = 'relatórios consolidados' },
-        @{ Path = 'ghidra';      Why = 'núcleo: descompilador' },
-        @{ Path = 'x64dbg';      Why = 'núcleo: debugger' },
-        @{ Path = 'rea-main';    Why = 'núcleo: orquestrador' },
-        @{ Path = 'x64dbg-mcp-server-main'; Why = 'núcleo: ponte MCP' }
+        @{ Path = 'docs';     Why = 'documentação' },
+        @{ Path = 'scripts';  Why = 'automação' },
+        @{ Path = 'config';   Why = 'templates de config' },
+        @{ Path = 'tools';    Why = 'ferramentas instaladas pelo bootstrap' },
+        @{ Path = 'work';     Why = 'área de trabalho por alvo (fora do Git)' },
+        @{ Path = 'reports';  Why = 'relatórios consolidados' },
+        @{ Path = 'ghidra';   Why = 'núcleo: descompilador'; Fetch = $true },
+        @{ Path = 'x64dbg';   Why = 'núcleo: debugger';      Fetch = $true },
+        @{ Path = 'rea-main'; Why = 'núcleo: orquestrador';  Fetch = $true }
     )
     foreach ($e in $expected) {
         $p = Join-Path $root $e.Path
         if (Test-PathExists $p) {
             Add-Result "layout:$($e.Path)" 'OK' $e.Why
+        } elseif ($e.Fetch) {
+            Add-Result "layout:$($e.Path)" 'FAIL' "ausente: $($e.Why) — terceiro não distribuído" 'rode: powershell -File .\scripts\fetch-tools.ps1 -Apply'
         } else {
             $created = New-DirIfMissing -Path $p -Apply:$FixPaths
             if ($FixPaths -and $created) {
@@ -170,10 +177,14 @@ function Test-HostToolchain {
             $javaAntes = $env:JAVA_HOME
             $null = Set-EnvFileValue -Path $envFilePath -Key 'JAVA_HOME' -Value $jdkHome -Apply
             $env:JAVA_HOME = $jdkHome
+            $notaJava = 'env file + sessão'
+            if (Set-UserEnvVar -Name 'JAVA_HOME' -Value $jdkHome -Apply) {
+                $notaJava = 'env file + sessão + ambiente do usuário'
+            }
             if ($javaAntes) {
-                Add-Result 'host:java_home' 'OK' "corrigido: $javaAntes -> $jdkHome" 'gravado em config/env/unboxre.env'
+                Add-Result 'host:java_home' 'OK' "corrigido: $javaAntes -> $jdkHome" $notaJava
             } else {
-                Add-Result 'host:java_home' 'OK' "definido: $jdkHome" 'gravado em config/env/unboxre.env'
+                Add-Result 'host:java_home' 'OK' "definido: $jdkHome" $notaJava
             }
         } else {
             $problemaJava = 'JAVA_HOME não está definido nesta sessão'
@@ -248,9 +259,10 @@ function Test-CoreTools {
         }
         # GHIDRA_INSTALL_DIR: definido E apontando para uma instalação que existe.
         # Uma variável obsoleta é pior que nenhuma — o REA falha com erro obscuro.
-        # Com -Fix-Paths o script não só avisa: reescreve config/env/unboxre.env e
-        # ajusta o ambiente DESTA sessão (nenhum processo altera o ambiente do pai,
-        # então continuar carregando o arquivo é responsabilidade do usuário).
+        # Com -Fix-Paths o script não só avisa: reescreve config/env/unboxre.env,
+        # ajusta o ambiente DESTA sessão e persiste no ambiente do usuário (escopo
+        # User). Nenhum processo altera o ambiente do pai, mas persistir no escopo
+        # User faz a próxima janela herdar o caminho certo em vez do obsoleto.
         $ghidraEnvOk = $false
         if ($env:GHIDRA_INSTALL_DIR) {
             $ghidraEnvOk = Test-PathExists (Join-Path $env:GHIDRA_INSTALL_DIR 'support\analyzeHeadless.bat')
@@ -263,10 +275,14 @@ function Test-CoreTools {
             $ghidraAntes = $env:GHIDRA_INSTALL_DIR
             $null = Set-EnvFileValue -Path $envFilePath -Key 'GHIDRA_INSTALL_DIR' -Value $ghidraDir -Apply
             $env:GHIDRA_INSTALL_DIR = $ghidraDir
+            $notaGhidra = 'env file + sessão'
+            if (Set-UserEnvVar -Name 'GHIDRA_INSTALL_DIR' -Value $ghidraDir -Apply) {
+                $notaGhidra = 'env file + sessão + ambiente do usuário'
+            }
             if ($ghidraAntes) {
-                Add-Result 'ghidra:env' 'OK' "corrigido: $ghidraAntes -> $ghidraDir" 'gravado em config/env/unboxre.env'
+                Add-Result 'ghidra:env' 'OK' "corrigido: $ghidraAntes -> $ghidraDir" $notaGhidra
             } else {
-                Add-Result 'ghidra:env' 'OK' "definido: $ghidraDir" 'gravado em config/env/unboxre.env'
+                Add-Result 'ghidra:env' 'OK' "definido: $ghidraDir" $notaGhidra
             }
         } else {
             $problema = 'GHIDRA_INSTALL_DIR não definido'
@@ -298,7 +314,7 @@ function Test-CoreTools {
     if ($foundPlugin) {
         Add-Result 'mcp:plugin' 'OK' (Split-Path -Leaf $foundPlugin)
     } else {
-        Add-Result 'mcp:plugin' 'FAIL' 'plugin MCP não instalado no x64dbg' 'rode scripts/re-build.ps1 -Apply'
+        Add-Result 'mcp:plugin' 'FAIL' 'plugin MCP não instalado no x64dbg' 'rode: powershell -File .\scripts\fetch-tools.ps1 -Tool x64dbg-mcp -Apply'
     }
 
     # x64dbg mcp_config.json (token gerado no 1º run)
@@ -326,12 +342,19 @@ function Test-CoreTools {
         Add-Result 'rea:entry' 'FAIL' 'rea-main/scripts/rea.mjs ausente' 'confira o checkout do REA'
     }
 
-    # MCP server compilado?
-    $dist = Get-ChildItem -Path (Join-Path $root 'x64dbg-mcp-server-main') -Recurse -Include '*.dll','*.dp64','*.dp32' -ErrorAction SilentlyContinue | Select-Object -First 1
-    if ($dist) {
-        Add-Result 'mcp:build' 'OK' ("build encontrado: " + $dist.Name)
+    # Fonte do MCP server compilada localmente (opcional). O caminho PADRÃO numa
+    # máquina limpa é o release pré-compilado do upstream (install.marker em
+    # config/tools.json); a fonte só existe se você buildar com Zig de propósito.
+    $srcDir = Join-Path $root 'x64dbg-mcp-server-main'
+    if (Test-PathExists $srcDir) {
+        $dist = Get-ChildItem -Path $srcDir -Recurse -Include '*.dll','*.dp64','*.dp32' -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($dist) {
+            Add-Result 'mcp:build' 'OK' ("build local encontrado: " + $dist.Name)
+        } else {
+            Add-Result 'mcp:build' 'INFO' 'fonte presente sem build local (o plugin instalado vem do release upstream)' 're-build.ps1 -Apply se quiser compilar a fonte'
+        }
     } else {
-        Add-Result 'mcp:build' 'FAIL' 'nenhum artefato compilado' 'rode scripts/re-build.ps1 -Apply'
+        Add-Result 'mcp:build' 'SKIP' 'fonte do MCP não clonada (não é necessária: usa-se o release pré-compilado)'
     }
 }
 

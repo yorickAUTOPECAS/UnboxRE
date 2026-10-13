@@ -83,7 +83,7 @@ $ find work/acme-fw/extracted -type f -executable -exec file {} \; | grep ELF
 | `binwalk -e` em container aninhado | extração parcial | use unblob |
 | Ghidra em x86 por padrão | descompilação sem sentido | `readelf -h` → `-processor` explícito |
 | analisar só o primeiro filesystem | conclusão incompleta | procure múltiplos rootfs |
-| firmware redistribuído no repo | problema legal | `work/` fica fora do Git |
+| firmware redistribuído no repo | material de terceiro no Git | `work/` fica fora do Git |
 
 ## Referências
 

@@ -304,6 +304,34 @@ function Set-EnvFileValue {
     return $true
 }
 
+function Set-UserEnvVar {
+    <#
+        Persiste KEY=VALUE no ambiente do usuário (escopo User), para que a correção
+        sobreviva à sessão atual. Sem isto o valor obsoleto volta na próxima janela:
+        um processo não altera o ambiente do pai, mas o Windows mantém um bloco de
+        ambiente do usuário que toda sessão nova herda.
+
+        Só é chamado pelos caminhos corretivos (-Apply/-Fix-Paths). Confere a leitura
+        de volta e retorna $true apenas quando o valor persistiu de fato.
+    #>
+    param(
+        [Parameter(Mandatory)][string]$Name,
+        [Parameter(Mandatory)][string]$Value,
+        [switch]$Apply
+    )
+    if (-not $Apply) {
+        Write-Status 'INFO' "DRY-RUN: persistir $Name=$Value (escopo User)"
+        return $false
+    }
+    try {
+        [Environment]::SetEnvironmentVariable($Name, $Value, 'User')
+    } catch {
+        Write-Status 'WARN' "não foi possível persistir $Name no ambiente do usuário: $($_.Exception.Message)"
+        return $false
+    }
+    return ([Environment]::GetEnvironmentVariable($Name, 'User') -eq $Value)
+}
+
 function Get-JsonFileSafe {
     <#  Lê JSON tolerando ausência/erro. Retorna $null em falha.  #>
     param([Parameter(Mandatory)][string]$Path)
@@ -313,6 +341,34 @@ function Get-JsonFileSafe {
     } catch {
         return $null
     }
+}
+
+function Get-ToolManifest {
+    <#
+        Lê config/tools.json — a fonte de verdade dos NÚCLEO de terceiros.
+        Retorna o objeto .tools (hashtable/PSCustomObject indexado por slug) ou
+        $null se o arquivo faltar/for inválido. Consumido por fetch-tools.ps1,
+        health-check.ps1 e check-consistency.mjs (que validam o mesmo contrato).
+    #>
+    param([string]$Path)
+    if (-not $Path) { $Path = Join-Path (Get-RepoRoot) 'config\tools.json' }
+    $doc = Get-JsonFileSafe -Path $Path
+    if ($null -eq $doc) { return $null }
+    return (Get-Field $doc 'tools')
+}
+
+function Test-ToolMarker {
+    <#
+        True quando o glob do campo install.marker do manifest casa algo em disco.
+        Ex.: 'ghidra/*/support/analyzeHeadless.bat' → True se houver instalação.
+        Um glob 'x64dbg/*.exe' não existe; o manifest usa caminhos reais.
+    #>
+    param(
+        [Parameter(Mandatory)][string]$Marker,
+        [string]$Root = (Get-RepoRoot)
+    )
+    $full = Join-Path $Root $Marker
+    return [bool]@(Get-ChildItem -Path $full -ErrorAction SilentlyContinue | Select-Object -First 1)
 }
 
 function Write-JsonFile {
@@ -336,9 +392,21 @@ function Write-JsonFile {
 
 # ─── Banner ─────────────────────────────────────────────────────────────────
 
+function Test-UnboxQuiet {
+    <#
+        Contrato de silêncio: health-check.ps1 define $UnboxQuiet = $Json no escopo
+        do script. Ler $script:UnboxQuiet direto quebra sob StrictMode quando o script
+        que fez dot-source não declara a variável (era o caso de scan-secrets.ps1,
+        que imprimia um erro de variável indefinida antes de cada seção).
+    #>
+    $v = Get-Variable -Name UnboxQuiet -Scope Script -ErrorAction SilentlyContinue
+    if (-not $v) { return $false }
+    return [bool]$v.Value
+}
+
 function Write-Banner {
     param([Parameter(Mandatory)][string]$Title, [string]$Subtitle = '')
-    if ($script:UnboxQuiet) { return }   # ver contrato de -Json em health-check.sh
+    if (Test-UnboxQuiet) { return }   # ver contrato de -Json em health-check.sh
     $line = ('─' * 68)
     Write-Host ''
     Write-Host $line -ForegroundColor DarkCyan
@@ -349,7 +417,7 @@ function Write-Banner {
 
 function Write-Section {
     param([Parameter(Mandatory)][string]$Title)
-    if ($script:UnboxQuiet) { return }
+    if (Test-UnboxQuiet) { return }
     Write-Host ''
     Write-Host ("── " + $Title + " ") -ForegroundColor Cyan
 }

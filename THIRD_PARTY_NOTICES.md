@@ -74,13 +74,13 @@ deles **não** é publicado aqui — apenas referenciado, com crédito:
 | **Capstone** | BSD-3 | <https://github.com/capstone-engine/capstone> |
 | **Keystone** | BSD-3 | <https://github.com/keystone-engine/keystone> |
 | **YARA** | BSD-3 | VirusTotal / <https://github.com/VirusTotal/yara> |
-| **YARA-X** | Apache-2.0 | VirusTotal / <https://github.com/VirusTotal/yara-x> |
+| **YARA-X** | BSD-3-Clause | VirusTotal / <https://github.com/VirusTotal/yara-x> |
 | **Detect It Easy (DIE)** | MIT | horsicq / <https://github.com/horsicq/Detect-It-Easy> |
-| **ghidriff** | Apache-2.0 | <https://github.com/clearbluejar/ghidriff> |
-| **Diaphora** | GPL-3.0 | <https://github.com/joxeankoret/diaphora> |
+| **ghidriff** | GPL-3.0 | <https://github.com/clearbluejar/ghidriff> |
+| **Diaphora** | AGPL-3.0 | <https://github.com/joxeankoret/diaphora> |
 | **angr** | BSD-2 | <https://github.com/angr/angr> |
 | **Triton** | Apache-2.0 | Jonathan Salwan / <https://github.com/JonathanSalwan/Triton> |
-| **msynth** | BSD-3 | <https://github.com/mrphrazer/msynth> |
+| **msynth** | GPL-2.0 | <https://github.com/mrphrazer/msynth> |
 | **Miasm** | GPL-2.0 | CEA / <https://github.com/cea-sec/miasm> |
 | **ImHex** | GPL-2.0 | WerWolv / <https://github.com/WerWolv/ImHex> |
 | **pefile** | MIT | Ero Carrera / <https://github.com/erocarrera/pefile> |
@@ -205,7 +205,7 @@ deles **não** é publicado aqui — apenas referenciado, com crédito:
 | **Jython** | PSF | <https://www.jython.org> |
 | **PyGhidra** | Apache-2.0 | parte do Ghidra / <https://github.com/NationalSecurityAgency/ghidra> |
 | **jefferson** | MIT | Sviehb / <https://github.com/sviehb/jefferson> |
-| **ubi_reader** | GPL-3.0 | JR Spruitt — mantido por onekey-sec / <https://github.com/onekey-sec/ubi_reader> |
+| **ubi_reader** (distribuído como `ubireader`, entrypoint `ubireader_extract_images`) | GPL-3.0 | JR Spruitt — mantido por onekey-sec / <https://github.com/onekey-sec/ubi_reader> |
 
 ---
 
@@ -221,7 +221,7 @@ deles **não** é publicado aqui — apenas referenciado, com crédito:
 | **Kaitai Struct** | MIT | <https://kaitai.io> · <https://github.com/kaitai-io/kaitai_struct> |
 | **Scapy** | GPL-2.0 | <https://github.com/secdev/scapy> |
 | **boofuzz** | GPL-2.0 | <https://github.com/jtpereyda/boofuzz> |
-| **AFL++** | Apache-2.0 | <https://github.com/AFLplusplus/AFLplusplus> |
+| **AFL++** | AGPL-3.0 | <https://github.com/AFLplusplus/AFLplusplus> |
 | **Fluxzy** | GPL-3.0 (Core em dupla licença: GPL-3.0 ou comercial) | Haga Rakotoharivelo / <https://github.com/haga-rak/fluxzy.core> |
 
 ---

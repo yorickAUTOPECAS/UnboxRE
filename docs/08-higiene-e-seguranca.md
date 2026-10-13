@@ -54,7 +54,7 @@ debugger — é uma credencial de administrador.
 **Antes de qualquer `git add`, rode:**
 
 ```bash
-node scripts/scan-secrets.mjs        # procura tokens/chaves nos arquivos staged
+powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/scan-secrets.ps1   # procura tokens/chaves nos arquivos staged
 ```
 
 **Rotacione o token** depois de qualquer sessão em que ele apareceu em print, log ou
@@ -124,7 +124,7 @@ O detalhamento está em [03-licencas.md](03-licencas.md).
 
 - [ ] snapshot da VM revertido (ou programado para reverter)
 - [ ] `work/` contém apenas o que você quer manter
-- [ ] nenhum segredo em arquivo versionado (`scan-secrets.mjs`)
+- [ ] nenhum segredo em arquivo versionado (`scan-secrets.ps1`)
 - [ ] patches registrados em `notes/`, alvo original intacto
 - [ ] artefatos de terceiros marcados como não-publicáveis
 - [ ] token do MCP rotacionado, se exposto

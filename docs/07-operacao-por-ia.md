@@ -119,7 +119,8 @@ depois de gravar o estado original** (o plugin tem `RestorePatches` — use-o).
 **Use o REA para:** pipelines que cruzam domínios (firmware → Ghidra, rede → parser),
 e para o contrato de evidência.
 
-**Não use IA para:** decidir se algo é legal publicar. Isso é seu.
+**Não use IA para:** decidir o que pode ser publicado (licença e atribuição de
+terceiros). Isso é seu.
 
 ---
 
@@ -142,15 +143,20 @@ antigas. Sinais e correção:
 
 ## 7. Automação de pipeline (quando já existe estabilidade)
 
-Só automatize o que você já fez à mão duas vezes. O padrão:
+Só automatize o que você já fez à mão duas vezes. Não existe (ainda) um script de
+pipeline único — o "pipeline" é a composição dos comandos de cada fase, com o caso
+criado por `scripts/new-case.ps1` (`work/<alvo>/`) como ponto de encontro:
 
-```bash
-node scripts/pipeline.mjs --case acme-app-2.1 --stage recon
+```powershell
+# 1) cria o caso (dirs + notes/intake.md)
+.\scripts\new-case.ps1 -Name acme-app-2.1 -Target C:\samples\acme.exe
+# 2) cada fase é um comando; a saída vai para work/<alvo>/evidence/
+.\scripts\health-check.ps1 -Json -OutFile work\acme-app-2.1\evidence\health.json
 ```
 
-O pipeline lê `work/<alvo>/case.json`, executa a fase, grava em `evidence/` e anexa em
-`findings.md`. **Não** deixe o pipeline decidir interpretação — ele coleta e registra;
-a IA interpreta a partir do que foi coletado.
+Cada fase grava o artefato em `work/<alvo>/evidence/` antes de qualquer interpretação.
+**Não** deixe a automação decidir interpretação — ela coleta e registra; a IA
+interpreta a partir do que foi coletado, com o contrato de [06-workflows.md](06-workflows.md).
 
 ---
 

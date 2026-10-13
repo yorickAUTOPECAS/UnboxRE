@@ -1,0 +1,276 @@
+#!/usr/bin/env node
+/**
+ * check-consistency.mjs — offline regression test for docs ↔ code ↔ license drift.
+ *
+ * Why this exists
+ * ---------------
+ * The recurring failure mode in this repo was NOT broken code: it was the docs
+ * and the scripts quietly disagreeing — a `-Profile formats` in the guide that the
+ * script never accepted, a `--write` flag that was really `--apply`, a tool that
+ * got installed but never got a third-party credit line. Manual audits caught these
+ * once; they came back on the next edit. This runs on every push and fails the build.
+ *
+ * It needs NO network and NO third-party tools — so it works in CI on a clean runner.
+ * License ACCURACY (does the declared SPDX match the upstream?) is a separate,
+ * networked check: scripts/verify-licenses.mjs.
+ *
+ * Checks
+ * ------
+ *   1. config/tools.json is valid and self-consistent.
+ *   2. Every core tool (tools.json) and every bootstrap catalog tool appears in
+ *      THIRD_PARTY_NOTICES.md  (license COMPLETENESS).
+ *   3. Every `-Profile <x>` used in the docs is accepted by bootstrap-windows.ps1.
+ *   4. Every `gen-mcp-config.mjs --<flag>` used in the docs is a real flag.
+ *   5. Every scripts/*.(ps1|sh|mjs) referenced in the docs exists on disk.
+ *   6. Every JSON template under config/mcp/ parses.
+ *   7. Every relative markdown link in README/docs resolves to a real file.
+ *
+ * Usage: node scripts/check-consistency.mjs [--json]
+ * Exit:  0 all pass · 1 at least one check failed · 2 the checker itself crashed.
+ */
+
+import { readFileSync, existsSync, readdirSync, statSync } from "node:fs";
+import { dirname, join, resolve, relative, sep } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+const ROOT = resolve(HERE, "..");
+const JSON_OUT = process.argv.includes("--json");
+
+const read = (p) => readFileSync(join(ROOT, p), "utf8");
+const exists = (p) => existsSync(join(ROOT, p));
+
+const failures = [];
+const notes = [];
+function ok(msg) { notes.push(msg); }
+function fail(check, msg) { failures.push({ check, msg }); }
+function check(cond, name, msg) {
+  if (cond) ok(`${name}: ok`);
+  else fail(name, msg);
+}
+
+/** Recursively collect *.md under docs/ and scripts/, plus the root files. */
+function collectDocs() {
+  const files = ["README.md", "THIRD_PARTY_NOTICES.md", "LICENSE"];
+  const walk = (dir) => {
+    for (const name of readdirSync(join(ROOT, dir))) {
+      const rel = join(dir, name);
+      const st = statSync(join(ROOT, rel));
+      if (st.isDirectory()) walk(rel);
+      else if (name.endsWith(".md")) files.push(rel.split(sep).join("/"));
+    }
+  };
+  walk("docs");
+  walk("scripts");
+  return files;
+}
+
+// ── 1. config/tools.json ─────────────────────────────────────────────────────
+let manifest;
+try {
+  manifest = JSON.parse(read("config/tools.json"));
+} catch (e) {
+  fail("manifest", `config/tools.json não parseia: ${e.message}`);
+}
+const coreTools = manifest ? Object.entries(manifest.tools ?? {}) : [];
+check(coreTools.length >= 4, "manifest:core-count",
+  `esperados >=4 núcleo em tools.json, achei ${coreTools.length}`);
+
+for (const [slug, t] of coreTools) {
+  check(!!t.displayName, `manifest:${slug}:displayName`, `${slug} sem displayName`);
+  check(!!t.license?.spdx, `manifest:${slug}:license`, `${slug} sem license.spdx`);
+  check(/^https:\/\//.test(t.license?.rawUrl ?? ""), `manifest:${slug}:rawUrl`,
+    `${slug} license.rawUrl deve ser https`);
+  check(!!t.upstream?.type, `manifest:${slug}:upstream`, `${slug} sem upstream.type`);
+  check(!!t.install?.marker, `manifest:${slug}:marker`, `${slug} sem install.marker`);
+}
+
+// ── 1b. config/licenses.json (the wider registry) ────────────────────────────
+if (exists("config/licenses.json")) {
+  try {
+    const reg = JSON.parse(read("config/licenses.json"));
+    check(Array.isArray(reg.tools) && reg.tools.length > 0, "registry:tools",
+      "config/licenses.json sem array 'tools'");
+    for (const t of reg.tools ?? []) {
+      check(!!t.name && !!t.spdx, "registry:entry", `config/licenses.json: entrada sem name/spdx: ${JSON.stringify(t)}`);
+      check(!!t.repo || !!t.rawUrl, "registry:source",
+        `config/licenses.json: "${t.name}" precisa de repo ou rawUrl para ser verificável`);
+    }
+  } catch (e) {
+    fail("registry", `config/licenses.json não parseia: ${e.message}`);
+  }
+}
+
+// ── 2. License completeness (notices + matrix) ───────────────────────────────
+const notices = exists("THIRD_PARTY_NOTICES.md") ? read("THIRD_PARTY_NOTICES.md") : "";
+const matrix = exists("docs/03-licencas.md") ? read("docs/03-licencas.md") : "";
+const lower = (s) => s.toLowerCase();
+
+for (const [slug, t] of coreTools) {
+  const needle = lower(t.displayName.split("(")[0].trim());
+  check(lower(notices).includes(needle), `notices:${slug}`,
+    `"${t.displayName}" (núcleo) não tem entrada em THIRD_PARTY_NOTICES.md`);
+}
+
+// Every tool the bootstrap INSTALLS must have a credit line.
+let catalogNames = [];
+if (exists("scripts/bootstrap-windows.ps1")) {
+  const bs = read("scripts/bootstrap-windows.ps1");
+  // Catalog entries are hashtables: @{ Name = 'X'; ... License = '...' }
+  for (const m of bs.matchAll(/Name\s*=\s*'([^']+)'/g)) catalogNames.push(m[1]);
+}
+catalogNames = [...new Set(catalogNames)];
+check(catalogNames.length > 0, "catalog:parsed",
+  "não consegui extrair nenhuma ferramenta do catálogo do bootstrap");
+const noticeLc = lower(notices);
+for (const name of catalogNames) {
+  // Match on the leading token, e.g. "Zig", "Detect It Easy", "Node.js LTS" → first word.
+  const key = lower(name.split(/[ (/]/)[0]);
+  const found = noticeLc.includes(lower(name)) || noticeLc.includes(key);
+  if (!found) fail("completeness", `ferramenta do bootstrap sem crédito no NOTICES: "${name}"`);
+}
+if (!failures.some((f) => f.check === "completeness")) {
+  ok(`completeness: ${catalogNames.length} ferramentas do bootstrap têm crédito`);
+}
+
+// ── 3. Bootstrap profile names ───────────────────────────────────────────────
+let validProfiles = [];
+if (exists("scripts/bootstrap-windows.ps1")) {
+  const bs = read("scripts/bootstrap-windows.ps1");
+  const vs = bs.match(/\[ValidateSet\(([^)]*)\)\]\s*\[string\[\]\]\$Profile/);
+  if (vs) validProfiles = [...vs[1].matchAll(/'([^']+)'/g)].map((m) => m[1]);
+}
+check(validProfiles.length > 0, "profile:parsed",
+  "não consegui extrair o ValidateSet de -Profile do bootstrap");
+
+const docs = collectDocs();
+for (const file of docs) {
+  if (!exists(file)) continue;
+  const text = read(file);
+  for (const m of text.matchAll(/-Profile\s+([A-Za-z0-9_,]+)/g)) {
+    for (const p of m[1].split(",")) {
+      if (p && !validProfiles.includes(p)) {
+        fail("profile", `${file}: "-Profile ${p}" não é um perfil válido (${validProfiles.join(", ")})`);
+      }
+    }
+  }
+}
+
+// ── 4. gen-mcp-config.mjs flags ──────────────────────────────────────────────
+let validFlags = [];
+if (exists("scripts/gen-mcp-config.mjs")) {
+  const src = read("scripts/gen-mcp-config.mjs");
+  validFlags = [...new Set([
+    ...[...src.matchAll(/\bhas\("(--[a-z-]+)"\)/g)].map((m) => m[1]),
+    ...[...src.matchAll(/\bval\("(--[a-z-]+)"/g)].map((m) => m[1]),
+  ])];
+}
+check(validFlags.length > 0, "mcpflags:parsed", "não extraí flags de gen-mcp-config.mjs");
+for (const file of docs) {
+  if (!exists(file)) continue;
+  // Line-scoped: a flag can follow a value ("--client claude --write"), so we
+  // scan every --flag on any line that invokes the generator, not just the ones
+  // glued to the filename.
+  for (const line of read(file).split(/\r?\n/)) {
+    if (!line.includes("gen-mcp-config.mjs")) continue;
+    for (const m of line.matchAll(/--[a-z][a-z-]+/g)) {
+      if (!validFlags.includes(m[0])) {
+        fail("mcpflags", `${file}: "gen-mcp-config.mjs ${m[0]}" — flag inexistente (válidas: ${validFlags.join(", ")})`);
+      }
+    }
+  }
+}
+
+// ── 4b. gen-mcp-config.mjs client slugs ──────────────────────────────────────
+let validClients = [];
+if (exists("scripts/gen-mcp-config.mjs")) {
+  const block = read("scripts/gen-mcp-config.mjs").match(/const CLIENTS = \{([\s\S]*?)\n\};/);
+  if (block) validClients = [...block[1].matchAll(/^\s{2}"?([a-z][a-z0-9-]+)"?:\s*\{/gm)].map((m) => m[1]);
+}
+check(validClients.length > 0, "clients:parsed", "não extraí os clientes de gen-mcp-config.mjs");
+for (const file of docs) {
+  if (!exists(file)) continue;
+  for (const line of read(file).split(/\r?\n/)) {
+    if (!line.includes("gen-mcp-config.mjs")) continue;
+    for (const m of line.matchAll(/--client\s+([a-z][a-z0-9-]+)/g)) {
+      if (!validClients.includes(m[1])) {
+        fail("clients", `${file}: "--client ${m[1]}" — cliente inexistente (válidos: ${validClients.join(", ")})`);
+      }
+    }
+  }
+}
+
+// ── 5. Referenced scripts exist ──────────────────────────────────────────────
+for (const file of docs) {
+  if (!exists(file)) continue;
+  const text = read(file);
+  // A repo-relative script path starts at a boundary; a path like
+  // "rea-main/scripts/rea.mjs" (a third-party entrypoint) must NOT be treated as
+  // "scripts/rea.mjs". We capture an optional ./ or ../ prefix and require the
+  // preceding char not to be part of a longer path.
+  for (const m of text.matchAll(/(?<![A-Za-z0-9_.\\/-])((?:\.{0,2}[\\/])?scripts[\\/][A-Za-z0-9._-]+\.(?:ps1|sh|mjs))/g)) {
+    const rel = m[1].replace(/^\.{0,2}[\\/]/, "").replace(/\\/g, "/");
+    if (!exists(rel)) fail("scripts", `${file}: referencia ${m[1]}, que não existe`);
+  }
+}
+
+// ── 6. MCP JSON templates parse ──────────────────────────────────────────────
+if (exists("config/mcp")) {
+  for (const name of readdirSync(join(ROOT, "config/mcp"))) {
+    if (!name.endsWith(".json")) continue;
+    try {
+      JSON.parse(read(`config/mcp/${name}`));
+      ok(`mcp:${name}: ok`);
+    } catch (e) {
+      fail("mcp", `config/mcp/${name} não parseia: ${e.message}`);
+    }
+  }
+}
+
+// ── 7. Relative markdown links resolve ───────────────────────────────────────
+for (const file of docs) {
+  if (!exists(file)) continue;
+  const text = read(file);
+  for (const m of text.matchAll(/\]\(([^)]+)\)/g)) {
+    let target = m[1].trim();
+    if (/^(https?:|mailto:|#)/.test(target)) continue;
+    target = target.split("#")[0];
+    if (!target) continue;
+    const resolved = resolve(join(ROOT, dirname(file)), decodeURIComponent(target));
+    if (!existsSync(resolved)) {
+      fail("links", `${file}: link relativo quebrado → ${target}`);
+    }
+  }
+}
+
+// ── Report ───────────────────────────────────────────────────────────────────
+const summary = {
+  ok: notes.length,
+  fail: failures.length,
+  checks: {
+    coreTools: coreTools.length,
+    catalogTools: catalogNames.length,
+    validProfiles,
+    mcpFlags: validFlags,
+  },
+};
+
+if (JSON_OUT) {
+  console.log(JSON.stringify({ summary, failures }, null, 2));
+} else {
+  console.log("");
+  console.log("UnboxRE — verificação de consistência (docs ↔ código ↔ licenças)");
+  console.log("─".repeat(66));
+  console.log(`  núcleo: ${summary.checks.coreTools} · catálogo: ${summary.checks.catalogTools} · perfis: ${validProfiles.length} · flags MCP: ${validFlags.length}`);
+  console.log("");
+  if (failures.length === 0) {
+    console.log(`  [OK] nenhuma divergência encontrada (${notes.length} verificações).`);
+  } else {
+    for (const f of failures) console.log(`  [FAIL] (${f.check}) ${f.msg}`);
+    console.log("");
+    console.log(`  ${failures.length} divergência(s). Corrija a doc OU o código — os dois devem concordar.`);
+  }
+  console.log("");
+}
+
+process.exit(failures.length > 0 ? 1 : 0);

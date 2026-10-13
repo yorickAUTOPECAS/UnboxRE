@@ -21,7 +21,7 @@ não quebra nada, e nada é instalado/compilado/copiado sem uma flag explícita
 | `setup-ghidra-extensions.ps1` | Windows | instala extensões `.zip` no Ghidra | com `-Apply` |
 | `new-case.ps1` | Windows | cria `work/<slug>/` com intake e hash | sim |
 | `scan-secrets.ps1` | Windows (pwsh) | procura segredos e arquivos indevidos | não |
-| `gen-mcp-config.mjs` | Node | gera/valida as configs MCP por cliente | com `--write` |
+| `gen-mcp-config.mjs` | Node | gera/valida as configs MCP por cliente | com `--apply` (grava em `config/mcp/generated/`) |
 | `lib/common.ps1` | — | helpers compartilhados (dot-source) | — |
 
 ---
@@ -43,7 +43,7 @@ não quebra nada, e nada é instalado/compilado/copiado sem uma flag explícita
 wsl -d Ubuntu -- bash -lc "cd $(wslpath -u 'C:\Users\Admin\Desktop\UnboxRE') && bash scripts/bootstrap-wsl.sh --apply --yes"
 
 # 5. Gere as configs de MCP para o seu cliente
-node .\scripts\gen-mcp-config.mjs --client claude-desktop --write
+node .\scripts\gen-mcp-config.mjs --client claude-desktop --apply
 
 # 6. Confirme tudo
 .\scripts\health-check.ps1

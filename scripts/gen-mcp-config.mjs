@@ -50,6 +50,7 @@ const OPTS = {
   apply: has("--apply"),
   install: has("--install"),
   check: has("--check"),
+  list: has("--list"),
   json: has("--json"),
   transport: val("--transport", "http"), // http | sse
   only: val("--client", null),
@@ -358,6 +359,24 @@ function validateInstalled(name, client) {
 // ───────────────────────────────────────────────────────────────────────────
 //  Execução
 // ───────────────────────────────────────────────────────────────────────────
+
+// --list: lista os clientes suportados e sai. Existe porque a documentação já o
+// citava; uma doc que aponta para um comando inexistente é exatamente o tipo de
+// divergência que scripts/check-consistency.mjs reprova.
+if (OPTS.list) {
+  if (OPTS.json) {
+    console.log(JSON.stringify(
+      Object.entries(CLIENTS).map(([slug, c]) => ({ slug, label: c.label, format: c.format, path: c.path })),
+      null, 2));
+  } else {
+    console.log("\nClientes MCP suportados (--client <slug>):\n");
+    for (const [slug, c] of Object.entries(CLIENTS)) {
+      console.log(`  ${slug.padEnd(16)} ${c.label.padEnd(22)} ${c.path}`);
+    }
+    console.log("");
+  }
+  process.exit(0);
+}
 
 const names = Object.keys(CLIENTS).filter((n) => !OPTS.only || n === OPTS.only);
 if (names.length === 0) {

@@ -3,6 +3,15 @@
 Auditoria executada em **2026-10-13** sobre `C:\Users\Admin\Desktop\UnboxRE`.
 Todo achado abaixo tem o comando de reprodução. Nada aqui é suposição: foi rodado.
 
+> **Correção posterior (2026-10-13, pós-`fetch-tools`).** Três achados desta tabela
+> deixaram de valer depois que o `fetch-tools.ps1` e a instalação via **release** do
+> MCP entraram: (G1) o REA passou a ser instalado do tarball npm e roda —
+> `node rea-main/scripts/rea.mjs doctor` reporta `ghidra: healthy`; (G3) o plugin MCP
+> **não exige mais Zig** — o release pré-compilado do upstream fornece o `.dp64/.dp32`;
+> (G2) os submódulos do REA não são necessários para o provedor Ghidra. Este documento
+> fica como registro histórico da auditoria original; o estado vivo está em
+> `scripts/health-check.ps1` e no [README](../README.md) §2.
+
 ---
 
 ## 1. Inventário real do que existe

@@ -83,7 +83,7 @@ print(io.recvall())
 | GDB no Windows | experiência ruim | use WSL |
 | ASLR ligado | endereços mudam entre runs | `set disable-randomization on` |
 | pwndbg e gef no mesmo gdbinit | conflito | escolha um |
-| `pwntools` contra alvo de terceiros | problema legal | só alvo próprio/autorizado |
+| `pwntools` contra alvo de terceiros | dados de terceiro no relatório | só alvo próprio/autorizado |
 | GPL-3.0 dentro do repo MIT | conflito | chame por processo |
 
 ## Referências

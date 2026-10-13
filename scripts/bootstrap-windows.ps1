@@ -17,6 +17,8 @@
     não quebra nada.
 
 .PARAMETER Profile
+    fetch     baixa os NÚCLEO de terceiros (Ghidra, x64dbg, REA, x64dbg-MCP)
+              via fetch-tools.ps1 — o passo que faz o clone limpo funcionar
     core      toolchain de build (JDK, Node, Zig, CMake, Ninja, Rust, Python)
     static    análise estática (radare2, DIE, YARA, capa, retoolkit)
     dynamic   análise dinâmica (Frida, Wireshark, mitmproxy, QEMU)
@@ -24,10 +26,17 @@
     firmware  firmware/IoT (binwalk, unblob — via WSL)
     net       rede (tshark, mitmproxy, fluxzy)
     plugins   instala os plugins no x64dbg (delega a re-build.ps1)
-    all       todos os perfis acima
+    all/full  todos os perfis acima (inclui fetch)
+
+    Aliases mantidos para os nomes usados na documentação (docs/04-instalacao.md):
+    formats → mobile + firmware; network → net; wsl → bootstrap-wsl.sh.
 
 .PARAMETER Apply
     Executa de fato. Sem esta flag, é dry-run.
+
+.PARAMETER DryRun
+    Alias explícito de "sem -Apply". Existe para que a linha de comando
+    documentada ("-DryRun") não divirja do script; o padrão já é dry-run.
 
 .PARAMETER Method
     auto (padrão) | winget | choco | manual. `auto` usa winget e cai para choco.
@@ -46,10 +55,11 @@
 #>
 [CmdletBinding()]
 param(
-    [ValidateSet('core', 'static', 'dynamic', 'mobile', 'firmware', 'net', 'plugins', 'all')]
+    [ValidateSet('fetch', 'core', 'static', 'dynamic', 'mobile', 'firmware', 'net', 'plugins', 'formats', 'network', 'wsl', 'all', 'full')]
     [string[]]$Profile = @('core'),
 
     [switch]$Apply,
+    [switch]$DryRun,
     [ValidateSet('auto', 'winget', 'choco', 'manual')]
     [string]$Method = 'auto',
     [switch]$Yes
@@ -58,6 +68,10 @@ param(
 $ErrorActionPreference = 'Continue'
 . (Join-Path $PSScriptRoot 'lib\common.ps1')
 $root = Get-RepoRoot
+
+# -DryRun é o oposto de -Apply: garante o modo somente-plano mesmo se alguém
+# passar os dois (a documentação usa -DryRun, o código usa -Apply).
+if ($DryRun) { $Apply = $false }
 
 try { [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false } catch { }
 
@@ -213,9 +227,30 @@ function Install-Manual {
 #  Execução
 # ───────────────────────────────────────────────────────────────────────────
 
+# Normaliza aliases da documentação para os perfis reais do script, para que
+# `-Profile formats` (docs) e `-Profile mobile,firmware` (código) sejam a MESMA
+# coisa. Sem isto a doc e o código divergem — exatamente o que o CI agora pega.
 $perfis = @($Profile)
-if ($perfis -contains 'all') {
-    $perfis = @('core', 'static', 'dynamic', 'mobile', 'firmware', 'net', 'plugins')
+if (($perfis -contains 'all') -or ($perfis -contains 'full')) {
+    $perfis = @('fetch', 'core', 'static', 'dynamic', 'mobile', 'firmware', 'net', 'plugins')
+}
+if ($perfis -contains 'formats') { $perfis = @($perfis | Where-Object { $_ -ne 'formats' }) + @('mobile', 'firmware') }
+if ($perfis -contains 'network') { $perfis = @($perfis | Where-Object { $_ -ne 'network' }) + @('net') }
+$perfis = @($perfis | Select-Object -Unique)
+
+# 'wsl' não é um perfil de winget: delega ao bootstrap-wsl.sh (Linux toolchain).
+if ($perfis -contains 'wsl') {
+    $perfis = @($perfis | Where-Object { $_ -ne 'wsl' })
+    $wslScript = Join-Path $PSScriptRoot 'bootstrap-wsl.sh'
+    Write-Host ''
+    Write-Host '── Perfil wsl (Linux toolchain)' -ForegroundColor Cyan
+    if (Test-PathExists $wslScript) {
+        $distro = 'Ubuntu'
+        Write-Host "   rode dentro do WSL:  wsl -d $distro -- bash $wslScript --apply" -ForegroundColor DarkGray
+        Write-Host '   (o provisionamento Linux não pode ser feito de dentro do PowerShell)' -ForegroundColor DarkGray
+    } else {
+        Write-Status 'FAIL' 'bootstrap-wsl.sh ausente' 'confira scripts/'
+    }
 }
 
 Write-Banner 'UnboxRE — bootstrap (Windows)' ("perfis: " + ($perfis -join ', '))
@@ -229,6 +264,23 @@ if ($Manager -eq 'none') {
     Write-Host '  Instale o winget (App Installer, via Microsoft Store) ou o Chocolatey:' -ForegroundColor Yellow
     Write-Host '    Set-ExecutionPolicy Bypass -Scope Process -Force; iex ((New-Object System.Net.WebClient).DownloadString("https://community.chocolatey.org/install.ps1"))' -ForegroundColor DarkGray
     exit 2
+}
+
+# ── Perfil "fetch": os NÚCLEO de terceiros que NÃO são redistribuídos ─────────
+# Estes vêm do upstream (config/tools.json), não do winget. Rodam primeiro: sem
+# eles, nada mais do toolkit tem contra o que trabalhar.
+if ($perfis -contains 'fetch') {
+    Write-Host ''
+    Write-Host '── Núcleo de terceiros (fetch do upstream)' -ForegroundColor Cyan
+    Write-Host '   Ghidra, x64dbg, REA, x64dbg-MCP — ver config/tools.json' -ForegroundColor DarkGray
+    $fetch = Join-Path $PSScriptRoot 'fetch-tools.ps1'
+    if (Test-PathExists $fetch) {
+        $fargs = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $fetch)
+        if ($Apply) { $fargs += '-Apply' }
+        & powershell @fargs
+    } else {
+        Write-Status 'FAIL' 'fetch-tools.ps1 ausente' 'confira scripts/'
+    }
 }
 
 $selected = @($Catalog | Where-Object {

@@ -1,0 +1,124 @@
+{
+  "schemaVersion": 1,
+  "note": [
+    "Canonical, machine-readable manifest for the CORE third-party tools that the",
+    "toolkit installs but does NOT vendor (see docs/03-licencas.md, THIRD_PARTY_NOTICES.md).",
+    "It is the single source of truth consumed by:",
+    "  - scripts/fetch-tools.ps1 / scripts/fetch-tools.sh   (download + install)",
+    "  - scripts/health-check.*                              (detect presence / missing)",
+    "  - scripts/verify-licenses.mjs                         (license accuracy vs upstream)",
+    "  - scripts/check-consistency.mjs                       (docs vs code drift)",
+    "Every field that pins an upstream fact (repo, asset, license, raw LICENSE URL)",
+    "MUST be checked against the primary source, never written from memory. The CI",
+    "job 'licenses' re-verifies the declarations below against the upstream LICENSE."
+  ],
+  "tools": {
+    "ghidra": {
+      "displayName": "Ghidra",
+      "role": "core: static analysis / decompiler",
+      "license": {
+        "spdx": "Apache-2.0",
+        "holder": "National Security Agency",
+        "redistributable_in_mit_repo": true,
+        "rawUrl": "https://raw.githubusercontent.com/NationalSecurityAgency/ghidra/master/LICENSE",
+        "needles": ["Apache License", "Version 2.0"]
+      },
+      "upstream": {
+        "type": "github-release",
+        "repo": "NationalSecurityAgency/ghidra",
+        "assetPattern": "^ghidra_.*_PUBLIC_.*\\.zip$",
+        "assetSizeBytesMin": 300000000
+      },
+      "install": {
+        "method": "zip-extract",
+        "dest": "ghidra",
+        "stripTopLevel": true,
+        "marker": "ghidra/*/support/analyzeHeadless.bat",
+        "env": { "GHIDRA_INSTALL_DIR": "ghidra/*" }
+      },
+      "versionPin": null,
+      "why": "Opens the whole static pipeline (PE/ELF/Mach-O/.NET/WASM) and backs the REA ghidra provider."
+    },
+    "x64dbg": {
+      "displayName": "x64dbg",
+      "role": "core: usermode debugger (GUI + headless)",
+      "license": {
+        "spdx": "GPL-3.0",
+        "holder": "x64dbg contributors",
+        "redistributable_in_mit_repo": false,
+        "rawUrl": "https://raw.githubusercontent.com/x64dbg/x64dbg/development/LICENSE",
+        "needles": ["GNU GENERAL PUBLIC LICENSE", "Version 3"]
+      },
+      "upstream": {
+        "type": "github-release",
+        "repo": "x64dbg/x64dbg",
+        "assetPattern": "^snapshot_.*\\.zip$",
+        "assetSizeBytesMin": 10000000
+      },
+      "install": {
+        "method": "zip-extract",
+        "dest": "x64dbg",
+        "stripTopLevel": true,
+        "marker": "x64dbg/release/x64/x64dbg.exe"
+      },
+      "versionPin": null,
+      "why": "The dynamic-analysis core; the x64dbg-MCP plugin loads into it. GPL: installed locally, never committed."
+    },
+    "rea": {
+      "displayName": "REA (rea-agents)",
+      "role": "core: agent orchestration layer",
+      "license": {
+        "spdx": "MIT",
+        "holder": "morluto",
+        "redistributable_in_mit_repo": true,
+        "rawUrl": "https://raw.githubusercontent.com/morluto/rea/main/LICENSE",
+        "needles": ["MIT License"]
+      },
+      "upstream": {
+        "type": "npm-package",
+        "package": "rea-agents",
+        "registry": "https://registry.npmjs.org"
+      },
+      "install": {
+        "method": "npm-tarball",
+        "dest": "rea-main",
+        "stripTopLevel": true,
+        "marker": "rea-main/scripts/rea.mjs",
+        "postInstall": ["npm install --omit=dev --ignore-scripts --no-audit --no-fund"]
+      },
+      "versionPin": null,
+      "why": "The cross-domain orchestrator (Ghidra/Android/firmware/network) and the rea MCP stdio server."
+    },
+    "x64dbg-mcp": {
+      "displayName": "x64dbg-MCP Server",
+      "role": "core: MCP bridge into x64dbg",
+      "license": {
+        "spdx": "MIT",
+        "holder": "duty1g",
+        "redistributable_in_mit_repo": true,
+        "rawUrl": "https://raw.githubusercontent.com/duty1g/x64dbg-mcp-server/main/LICENSE",
+        "needles": ["MIT License"]
+      },
+      "upstream": {
+        "type": "github-release",
+        "repo": "duty1g/x64dbg-mcp-server",
+        "assetPattern": "^x64dbg-MCP-Server-.*\\.zip$",
+        "assetSizeBytesMin": 1000000,
+        "fallback": {
+          "type": "git-build",
+          "repo": "https://github.com/duty1g/x64dbg-mcp-server.git",
+          "build": "zig build -Doptimize=ReleaseSafe --prefix dist",
+          "requires": ["zig"],
+          "output": "dist"
+        }
+      },
+      "install": {
+        "method": "plugin-zip",
+        "dest": "x64dbg",
+        "marker": "x64dbg/release/x64/plugins/x64dbg-MCP-Server.dp64"
+      },
+      "versionPin": null,
+      "why": "Turns x64dbg into a tool an AI can drive over HTTP MCP. The prebuilt release avoids a Zig toolchain on a clean machine."
+    }
+  }
+}

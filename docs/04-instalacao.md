@@ -41,10 +41,26 @@ PS> powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\health-check.p
 
 ## 1. Fase 1 — `core`: destravar o que já existe
 
+**Clone limpo: comece pelo `fetch`.** Os quatro diretórios do núcleo (`ghidra/`,
+`x64dbg/`, `rea-main/` e o plugin MCP) **não são versionados** — o `.gitignore` os
+bloqueia por licença de terceiros. O `fetch-tools.ps1` os baixa do upstream
+(release do Ghidra e do x64dbg, tarball npm do REA, release pré-compilado do MCP),
+verifica os checksums e instala; o perfil `core` já o executa como primeiro passo.
+
+```powershell
+PS> .\scripts\fetch-tools.ps1                  # plano (mostra as URLs do upstream)
+PS> .\scripts\fetch-tools.ps1 -Apply           # baixa e instala
+```
+
+O Zig **não** é mais necessário para o plugin MCP: o release do upstream traz o
+`.dp64/.dp32` pronto. Zig só entra se você quiser compilar a fonte (`re-build.ps1`).
+
 Corrige G1–G6 do diagnóstico. É a fase de maior retorno: transforma quatro
 ferramentas "presentes mas inertes" em um setup funcional.
 
 ```powershell
+PS> .\scripts\bootstrap-windows.ps1 -Profile fetch -DryRun   # 0) núcleo de terceiros (plano)
+PS> .\scripts\bootstrap-windows.ps1 -Profile fetch          # 0) baixa Ghidra/x64dbg/REA/MCP do upstream
 PS> .\scripts\bootstrap-windows.ps1 -Profile core -DryRun   # 1) ver o plano
 PS> .\scripts\bootstrap-windows.ps1 -Profile core           # 2) executar
 ```
@@ -257,7 +273,7 @@ não há credenciais reais na VM.
 
 ```powershell
 PS> node .\scripts\gen-mcp-config.mjs --client vscode --check
-PS> node .\scripts\gen-mcp-config.mjs --client claude --write
+PS> node .\scripts\gen-mcp-config.mjs --client claude-code --apply --install
 ```
 
 Detalhes em [05-mcp.md](05-mcp.md).
@@ -275,7 +291,7 @@ PS> .\scripts\bootstrap-windows.ps1 -Profile dynamic              # 3)
 PS> .\scripts\bootstrap-windows.ps1 -Profile formats              # 4)
 PS> .\scripts\bootstrap-windows.ps1 -Profile network              # 5)
 PS> .\scripts\bootstrap-windows.ps1 -Profile wsl                  # 6)
-PS> .\scripts\gen-mcp-config.mjs --client claude --write          # 7)
+PS> node .\scripts\gen-mcp-config.mjs --client claude-code --apply --install   # 7)
 PS> .\scripts\health-check.ps1 -Json | Set-Content reports\health-final.json
 ```
 

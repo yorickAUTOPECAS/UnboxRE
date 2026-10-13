@@ -101,6 +101,63 @@ jobs:
           test -s /tmp/health.json || { echo "::error::health-check.sh --json não produziu saída"; exit 1; }
           python3 -c "import json; d=json.load(open('/tmp/health.json', encoding='utf-8')); print('health.json válido:', d['summary'])"
 
+      - name: Sintaxe de todos os scripts Node (.mjs)
+        run: |
+          set -euo pipefail
+          for f in scripts/*.mjs; do
+            node --check "$f" && echo "ok: $f"
+          done
+
+      - name: Sintaxe de todos os scripts shell (.sh)
+        run: |
+          set -euo pipefail
+          for f in scripts/*.sh; do bash -n "$f" && echo "ok: $f"; done
+
+      - name: Sintaxe de todos os scripts PowerShell (.ps1)
+        # O host do toolkit é o Windows PowerShell 5.1. Um erro de sintaxe num .ps1
+        # só aparece quando alguém o executa — a menos que o parseie aqui.
+        shell: pwsh
+        run: |
+          $fail = $false
+          Get-ChildItem scripts -Recurse -Filter *.ps1 | ForEach-Object {
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$null, [ref]$errors) | Out-Null
+            if ($errors.Count -gt 0) {
+              $fail = $true
+              Write-Host "::error::erro de sintaxe em $($_.Name)"
+              $errors | ForEach-Object { Write-Host "  $($_.Message) (linha $($_.Extent.StartLineNumber))" }
+            } else { Write-Host "ok: $($_.Name)" }
+          }
+          if ($fail) { exit 1 }
+
+      - name: Gerador de config MCP produz JSON válido
+        # Garante que o script roda e que --list emite JSON parseável. Não toca em
+        # nenhum config de cliente: é um teste de fumaça do dialeto de saída.
+        run: |
+          set -euo pipefail
+          node scripts/gen-mcp-config.mjs --list --json > /tmp/mcp-clients.json
+          python3 -c "import json; d=json.load(open('/tmp/mcp-clients.json', encoding='utf-8')); assert d and d[0]['slug']; print('clientes MCP:', [c['slug'] for c in d])"
+
+      - name: Consistência docs ↔ código ↔ licenças
+        # O teste de regressão que a doutrina pede: pega perfis/flag/cliente
+        # citados na doc que não existem no código, ferramenta instalada sem
+        # crédito, link de doc quebrado, JSON de MCP inválido. Offline.
+        run: node scripts/check-consistency.mjs
+
+  licenses:
+    name: Licenças contra a fonte primária
+    runs-on: ubuntu-latest
+    # Job próprio porque precisa de rede. O check-consistency é offline.
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Verificar cada licença declarada no upstream
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/verify-licenses.mjs --strict
+
   secrets:
     name: Scan de segredos e binários
     runs-on: ubuntu-latest

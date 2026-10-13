@@ -120,11 +120,11 @@ try {
 - **Origem:** $orig
 - **Finalidade declarada:** $purp
 
-## Procedência e autorização
+## Procedência (fato técnico)
 
-Descreva como o alvo foi obtido, sob qual licença, e por que a análise é
-legítima (ex.: análise competitiva de software adquirido, pesquisa de segurança
-autorizada, alvo próprio). Isso protege o projeto e é exigido pelo repo.
+Como o alvo foi obtido e sob qual licença (ex.: binário adquirido do fabricante,
+pesquisa de segurança, alvo próprio). Registra a origem do artefato — não é uma
+declaração de finalidade.
 
 ## Objetivos
 

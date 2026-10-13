@@ -42,16 +42,14 @@ exige atribuição).
 | LIEF | Apache-2.0 | sim, com atribuição |
 | Capstone / Keystone | BSD-3 | sim |
 | YARA | BSD-3 | sim |
-| YARA-X | Apache-2.0 | sim |
+| YARA-X | BSD-3-Clause | sim |
 | capa (Mandiant FLARE) | Apache-2.0 | sim, com atribuição |
 | Detect It Easy (DIE) | MIT | sim |
-| ghidriff | Apache-2.0 | sim |
+| DynamoRIO | BSD-3 | sim |
 | angr | BSD-2 | sim |
 | Triton | Apache-2.0 | sim |
-| msynth | BSD-3 | sim |
 | VTIL | BSD-3 | sim |
 | RetDec | MIT | sim |
-| Unicorn | GPL-2.0 | **não** (ver §2.2) |
 | dnlib | MIT | sim |
 | de4dot-cex | MIT | sim |
 | ILSpy | MIT | sim |
@@ -82,7 +80,8 @@ exige atribuição).
 | radare2 / rizin | LGPL-3.0 | sim | só como lib separada, com fonte |
 | GDB | GPL-3.0 | sim | não |
 | binutils (readelf/objdump) | GPL-3.0 | sim | não |
-| DynamoRIO | BSD-3 | sim | sim |
+| ghidriff | GPL-3.0 | sim | não |
+| msynth | GPL-2.0 | sim | não |
 | Qiling | GPL-2.0 | sim | não |
 | Unicorn | GPL-2.0 | sim (lib) | não; cuidado com *linkar* |
 | Scapy | GPL-2.0 | sim | não |
@@ -92,8 +91,8 @@ exige atribuição).
 | de4dot | GPL-3.0 (versão antiga) | sim | não; use `de4dot-cex` (MIT) |
 | dnSpyEx | GPL-3.0 | sim | não |
 | MobSF | GPL-3.0 | sim | não |
-| AFL++ | Apache-2.0 | sim | sim |
-| Diaphora | GPL-3.0 | sim | não |
+| AFL++ | AGPL-3.0 | sim | não no repo MIT |
+| Diaphora | AGPL-3.0 | sim | não |
 | Fluxzy (Core) | GPL-3.0 (dupla: GPL-3.0 ou comercial) | sim | não no repo MIT |
 | Moneta | GPL-3.0 | sim (binário do upstream) | não no repo MIT |
 

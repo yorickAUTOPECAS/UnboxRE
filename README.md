@@ -48,44 +48,59 @@ O ambiente roda em **dois terrenos**, e saber qual usar resolve 80% das dúvidas
 
 ## 2. Estado atual (auditado em 2026-10-13)
 
-| Ferramenta | Versão instalada | Estado | Observação |
+Os quatro NÚCLEO de terceiros (`ghidra/`, `x64dbg/`, `rea-main/`, o plugin MCP)
+**não são versionados** por licença — um clone limpo não os tem, e `fetch-tools`
+os baixa do upstream. Nesta máquina, após o fetch:
+
+| Ferramenta | Versão | Estado | Observação |
 |---|---|---|---|
-| Ghidra | 12.1.4 PUBLIC (build 20260921) | ✅ funcional | `analyzeHeadless` executa |
-| JDK | 27 (Oracle) em `ghidra/jdk-27` | ⚠️ funciona, mas | Ghidra 12.1.4 só exige `>=21` e **não fixa máximo** — ok, porém JDK 21 LTS é o alvo *verificado* pelos fornecedores (REA) |
-| x64dbg | snapshot 2026-05-27 (`9c8ca1c`) | ✅ funcional | falta a pasta `plugins/` para os addons |
-| REA (`rea-main`) | 6.4.0, **fonte sem build** | ❌ não instalado | sem `node_modules`, `dist`, submodules vazios |
-| x64dbg-MCP Server | 1.0.0, **fonte sem build** | ❌ não compilado | requer **Zig ≥0.14 (ausente)** |
-| Toolchain auxiliar | — | ❌ ausente | sem `zig`, `7z`, `cmake`, `clang/gcc`, sem distro WSL |
+| Ghidra | 12.1.4 PUBLIC (build 20260921) | ✅ funcional | `analyzeHeadless` analisa um PE real de ponta a ponta ([evidência](reports/evidence-packer-upx.md)) |
+| JDK | 21 LTS no `PATH` + 27 em `ghidra/jdk-27` | ✅ | Ghidra 12.1.4 exige `>=21`; o pin do toolkit é o **21 LTS** |
+| x64dbg | snapshot 2026-05-27 | ✅ funcional | `release/{x32,x64}/plugins/` criado pelo fetch |
+| REA (`rea-agents`) | 6.4.0 | ✅ funcional | instalado via tarball npm; `rea doctor` reconhece o Ghidra |
+| x64dbg-MCP Server | 1.6 (release pré-compilado) | ✅ instalado | `.dp64`/`.dp32` copiados para o x64dbg; **Zig não é mais necessário** (só ao compilar da fonte) |
+| Toolchain auxiliar | zig/7z/cmake… | ⚠️ opcional | o fetch usa o release pré-compilado do MCP; Zig só para build da fonte |
 
 Detalhes, causa-raiz e plano de correção: **[docs/00-diagnostico.md](docs/00-diagnostico.md)**.
 
 ---
 
-## 3. Comece aqui (3 comandos)
+## 3. Comece aqui (clone limpo → análise)
+
+Num clone novo, os quatro diretórios do núcleo ainda não existem. O primeiro passo
+é buscá-los do upstream (Ghidra, x64dbg, REA, x64dbg-MCP — nunca vendorizados):
 
 ```powershell
-# 1) Verificar o estado real do ambiente (somente leitura, não instala nada)
+# 0) Verificar o estado real do ambiente (somente leitura, não instala nada)
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\health-check.ps1
 
-# 2) Instalar/atualizar dependências (dry-run primeiro!)
-powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\bootstrap-windows.ps1 -DryRun
+# 1) Buscar o núcleo de terceiros do upstream (dry-run primeiro!)
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\fetch-tools.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\fetch-tools.ps1 -Apply
+
+# 2) Complementar com a toolchain (dry-run primeiro!)
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\bootstrap-windows.ps1 -Profile core -DryRun
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\bootstrap-windows.ps1 -Profile core
 
 # 3) Gerar as configurações MCP para os clientes de IA
 node .\scripts\gen-mcp-config.mjs --client vscode --check
 ```
 
-Em Git Bash, o health check equivalente é `bash scripts/health-check.sh`.
+Em Git Bash, os equivalentes são `bash scripts/health-check.sh` e
+`bash scripts/fetch-tools.sh`. O perfil `core` do bootstrap também roda o `fetch`
+como primeiro passo, então `-Profile core` já cobre os passos 1 e 2.
 
 | Perfil do bootstrap | Conteúdo | Tempo aproximado |
 |---|---|---|
-| `core` | Corrige os 4 itens quebrados do setup atual (REA, MCP, plugins, Zig) | ~10 min |
+| `fetch` | Baixa o NÚCLEO de terceiros do upstream (Ghidra, x64dbg, REA, x64dbg-MCP) | ~5 min (com cache) |
+| `core` | `fetch` + toolchain de build (Zig, Node, JDK, cmake, Rust, Python) | ~10 min |
 | `static` | + radare2/rizin, LIEF, capstone, YARA, DIE, ghidriff, ImHex | ~15 min |
 | `dynamic` | + Frida, DynamoRIO, WinDbg/TTD, ScyllaHide, PE-sieve, Moneta, Sysinternals | ~15 min |
-| `formats` | + Android (jadx/apktool), .NET (dnSpyEx/ILSpy), WASM (wabt), firmware (binwalk/unblob) | ~20 min |
-| `network` | + Wireshark/tshark, Kaitai, boofuzz, Scapy | ~10 min |
-| `wsl` | Cria WSL2 Ubuntu 24.04 e provisiona a toolchain Linux/Android/firmware/fuzzing | ~25 min |
-| `full` | Tudo acima, em ordem | ~1 h |
+| `mobile`, `firmware` | Android (jadx/apktool) e firmware (binwalk/unblob) — alias histórico: `formats` | ~20 min |
+| `net` | Wireshark/tshark, mitmproxy, Fluxzy — alias histórico: `network` | ~10 min |
+| `plugins` | Instala os plugins compilados no x64dbg (delega a `re-build.ps1`) | ~5 min |
+| `wsl` | Provisiona o laboratório Linux (delega a `bootstrap-wsl.sh`; rode dentro do WSL) | ~25 min |
+| `all` | Tudo acima, em ordem — alias histórico: `full` | ~1 h |
 
 ---
 
@@ -111,13 +126,20 @@ Automação:
 
 | Script | Função |
 |---|---|
+| [scripts/fetch-tools.ps1](scripts/fetch-tools.ps1) | Baixa e instala o NÚCLEO de terceiros do upstream (Ghidra, x64dbg, REA, x64dbg-MCP) — o passo que faz o clone limpo funcionar |
+| [scripts/fetch-tools.sh](scripts/fetch-tools.sh) | O mesmo em Git Bash (delega ao `.ps1`) / WSL (ghidra+rea) |
 | [scripts/health-check.ps1](scripts/health-check.ps1) | Diagnóstico do ambiente (PS 5.1), com `-Json` para consumo por IA |
 | [scripts/health-check.sh](scripts/health-check.sh) | Mesmo diagnóstico em Git Bash |
 | [scripts/bootstrap-windows.ps1](scripts/bootstrap-windows.ps1) | Instalação por perfil, idempotente, com `-DryRun` |
 | [scripts/bootstrap-wsl.sh](scripts/bootstrap-wsl.sh) | Provisionamento da toolchain Linux dentro do WSL |
 | [scripts/gen-mcp-config.mjs](scripts/gen-mcp-config.mjs) | Gera/valida os blocos `mcpServers` para cada cliente de IA |
+| [scripts/identify-protections.mjs](scripts/identify-protections.mjs) | Triagem embutida de packer/protetor (UPX, VMProtect, Themida, ASPack…), sem dependência externa |
+| [scripts/check-consistency.mjs](scripts/check-consistency.mjs) | Teste de regressão offline: doc ↔ código ↔ licenças divergindo, comando/cliente/perfil inexistente |
+| [scripts/verify-licenses.mjs](scripts/verify-licenses.mjs) | Confere cada licença declarada contra a fonte primária (rede; job de CI) |
+| [scripts/new-case.ps1](scripts/new-case.ps1) | Cria o esqueleto de um caso em `work/<alvo>/` com procedência e hash |
 | [scripts/setup-ghidra-extensions.ps1](scripts/setup-ghidra-extensions.ps1) | Instala a extensão Jython e prepara PyGhidra (Python 3) |
-| [scripts/re-build.ps1](scripts/re-build.ps1) | Compila os componentes locais (REA, x64dbg-MCP) |
+| [scripts/re-build.ps1](scripts/re-build.ps1) | Compila os componentes locais da fonte (REA, x64dbg-MCP) — opcional; o fetch usa releases |
+| [scripts/scan-secrets.ps1](scripts/scan-secrets.ps1) | Bloqueia tokens/segredos antes do commit (roda no CI) |
 
 ---
 

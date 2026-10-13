@@ -9,8 +9,9 @@ retome o trabalho sem alucinar, e que você prove depois *de onde veio cada conc
 
 ```bash
 cd "$UNBOXRE_WORKSPACE"
-node scripts/new-case.mjs --name "acme-app-2.1" --type pe-x64 --source "C:/samples/acme.exe"
-# cria work/acme-app-2.1/{src,unpacked,notes,scripts,captures,evidence} + case.json
+powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/new-case.ps1 `
+  -Name "acme-app-2.1" -Target "C:/samples/acme.exe" -Origin "licença adquirida" -Purpose "análise competitiva"
+# cria work/acme-app-2.1/{src,unpacked,notes,scripts,captures,evidence} + notes/intake.md
 ```
 
 ```bash
@@ -153,8 +154,9 @@ erra em containers aninhados; unblob é mais confiável para extração real.
 Depois: cada ELF vai para o Ghidra (use o processor correto — MIPS/ARM/RISC-V, não x86).
 `strings` + busca por `passwd`, `shadow`, chaves privadas, URLs de update.
 
-**Ponto de atenção legal:** firmware de dispositivo seu ou de pesquisa é ok; firmware de
-terceiros redistribuído é problema. Veja [03-licencas.md](03-licencas.md).
+**Redistribuição:** o firmware extraído é material de terceiro e fica em `work/` (fora
+do Git); a metodologia de extração pode ser publicada — veja
+[03-licencas.md](03-licencas.md) §4.
 
 ---
 
@@ -263,8 +265,9 @@ mudanças de protocolo, correções. E é uma fração do esforço de reverter o
 
 ## Cenário 12 — License check / DRM
 
-**Objetivo legítimo:** entender o *modelo* de licenciamento (o que é validado, como, e
-com que dados) para desenhar o seu — não para piratear o deles.
+**Objetivo:** mapear o *modelo* de licenciamento do alvo — o que é validado, como, e com
+que dados — para documentar a decisão de design (validar local ou em servidor, quais
+campos o payload carrega).
 
 ```
 1. Localize a função: GetStrings → procure "licen", "serial", "activation", "expire"
@@ -275,9 +278,8 @@ com que dados) para desenhar o seu — não para piratear o deles.
 5. Documente: quais campos, qual formato, qual expiração
 ```
 
-**Regra de higiene:** você está documentando o modelo para projetar o seu. Não publique
-chaves, não gere licenças, não distribua bypass. Isso mantém o toolkit publicável no
-GitHub sem virar um problema legal — ver [03-licencas.md](03-licencas.md) e
+**Regra de higiene:** chaves, serials e qualquer material do alvo ficam em `work/`, fora
+do Git — nunca em `reports/`. Ver [03-licencas.md](03-licencas.md) §4 e
 [08-higiene-e-seguranca.md](08-higiene-e-seguranca.md).
 
 ---
@@ -288,7 +290,7 @@ GitHub sem virar um problema legal — ver [03-licencas.md](03-licencas.md) e
    recon            triage           deep             sintese
    ─────            ──────           ────             ───────
    hash+file   →    strings/PE   →   Ghidra+x64dbg →  notes/ + evidence/
-   new-case.mjs     GetStrings       MCP orquestra     protocol.md
+   new-case.ps1     GetStrings       MCP orquestra     protocol.md
                     DetectOEP        REA providers     findings.md
 ```
 

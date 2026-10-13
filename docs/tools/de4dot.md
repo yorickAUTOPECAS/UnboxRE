@@ -40,7 +40,7 @@ O ecossistema ao redor:
 ## Instalação
 
 ```powershell
-PS> .\scripts\bootstrap-windows.ps1 -Profile dotnet
+PS> .\scripts\bootstrap-windows.ps1 -Profile formats   # perfil .NET/Android/WASM/firmware
 # ou baixe o release do de4dot-cex para tools/de4dot/
 ```
 
