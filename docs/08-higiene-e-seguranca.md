@@ -73,13 +73,13 @@ A regra:
 | Binários de terceiros | ❌ não | redistribuição não autorizada |
 | Dumps/pseudocódigo de terceiros | ❌ não | obra derivada |
 | Chaves, tokens, certificados | ❌ nunca | segurança |
-| PoC de bypass de proteção | ⚠️ caso a caso | pode ser ilegal em várias jurisdições |
+| PoC de bypass de proteção | ⚠️ caso a caso | contém material do alvo: não redistribuível |
 | Metodologia, catálogo, workflows | ✅ sim | conhecimento |
 | Hash e metadados do alvo | ✅ geralmente | fato, não obra |
 
 **Por quê a distinção importa:** descrever *como* analisar é livre. Redistribuir o
 resultado da análise de software de terceiros não é. Publique o **método**; mantenha o
-**artefato** local. Veja [03-licencas.md](03-licencas.md) §"Escopo legal".
+**artefato** local. Veja [03-licencas.md](03-licencas.md) §4.
 
 ---
 

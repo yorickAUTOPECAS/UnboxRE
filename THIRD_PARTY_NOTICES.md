@@ -124,7 +124,7 @@ deles **não** é publicado aqui — apenas referenciado, com crédito:
 | **frida-tools** (pacote CLI) | `wxWindows`/LGPL-like | parte do projeto Frida — Ole André V. Ravnås / <https://github.com/frida/frida-tools> |
 | **PE-sieve** | BSD-2 | hasherezade / <https://github.com/hasherezade/pe-sieve> |
 | **HollowsHunter** | BSD-2 | hasherezade / <https://github.com/hasherezade/hollows_hunter> |
-| **Moneta** | licença não declarada pelo autor (freeware) | hasherezade / <https://hasherezade.net> |
+| **Moneta** | GPL-3.0 | Forrest Orr / <https://github.com/forrest-orr/moneta> |
 | **QEMU** (`qemu-user`) | GPL-2.0 | <https://www.qemu.org> |
 | **API Monitor** | `[COMERCIAL]` (freeware, sem redistribuição) | Rohitab Batra / <http://www.rohitab.com/apimonitor> |
 

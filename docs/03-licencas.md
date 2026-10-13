@@ -43,6 +43,7 @@ exige atribuição).
 | Capstone / Keystone | BSD-3 | sim |
 | YARA | BSD-3 | sim |
 | YARA-X | Apache-2.0 | sim |
+| capa (Mandiant FLARE) | Apache-2.0 | sim, com atribuição |
 | Detect It Easy (DIE) | MIT | sim |
 | ghidriff | Apache-2.0 | sim |
 | angr | BSD-2 | sim |
@@ -93,6 +94,8 @@ exige atribuição).
 | MobSF | GPL-3.0 | sim | não |
 | AFL++ | Apache-2.0 | sim | sim |
 | Diaphora | GPL-3.0 | sim | não |
+| Fluxzy (Core) | GPL-3.0 (dupla: GPL-3.0 ou comercial) | sim | não no repo MIT |
+| Moneta | GPL-3.0 | sim (binário do upstream) | não no repo MIT |
 
 > **Regra do toolkit:** o repositório publica **apenas o seu código (MIT) e a sua
 > documentação**. Ferramentas GPL são *instaladas localmente* pelo bootstrap, nunca
@@ -114,7 +117,6 @@ exige atribuição).
 | HTTP Toolkit | `[FREEMIUM]` | interceptação |
 | VMware / Genymotion | `[COMERCIAL]` | VirtualBox/Hyper-V são alternativas |
 | Sysinternals | `[COMERCIAL]` (grátis) | EULA Microsoft |
-| Moneta | freeware **sem licença declarada** | trate como *todos os direitos reservados*: use, não redistribua |
 | Xcode Command Line Tools (`otool`, `codesign`, `atos`) | `[COMERCIAL]` (grátis) | EULA Apple; só no host macOS |
 
 Nenhum item comercial é **requisito** do toolkit — todos têm caminho aberto no §2.1.
@@ -134,34 +136,31 @@ Nenhum item comercial é **requisito** do toolkit — todos têm caminho aberto 
 | Pseudocódigo extraído do alvo | ⚠️ | pode ser obra derivada do alvo |
 | Strings/assets do alvo | ❌ | reprodução de conteúdo do alvo |
 | Binários de terceiros (Ghidra, x64dbg…) | ❌ | licença + tamanho |
-| Amostras de alvos comerciais | ❌ | violação de EULA/copyright |
+| Amostras de alvos de terceiros | ❌ | material de terceiro: a licença do alvo não permite redistribuir |
 | Tokens, chaves, licenças | ❌ | segurança |
 
 ---
 
-## 4. Análise de proteção, DRM e licenciamento
+## 4. Alvo de terceiros: o que não entra no Git
 
-Sua finalidade declarada é **análise competitiva para reimplementação própria**. Isso
-é lícito em muitos contextos (interoperabilidade, pesquisa, avaliação de produto que
-você licenciou). O que muda de figura é a **publicação**:
+A regra dos §2–§3 vale igualmente para o **alvo**: o que é obra sua (metodologia,
+script, spec de formato) pode ser publicado; o que é material do alvo (código,
+pseudocódigo, strings, assets) não é seu para republicar.
 
-| Situação | Análise | Publicar método | Publicar bypass pronto |
+| Situação | Analisar | Publicar o método | Republicar material do alvo |
 |---|---|---|---|
-| Software que você licenciou, para interoperar | ✅ | ✅ | ⚠️ avaliar |
-| Pesquisa de segurança, resposta a incidente | ✅ | ✅ | ✅ (divulgação responsável) |
-| Contornar DRM/licença de terceiros para distribuir | ⚠️ | ❌ | ❌ |
+| Ferramenta que você instalou, para interoperar | sim | sim | depende da licença do alvo |
+| Pesquisa de segurança, resposta a incidente | sim | sim | não — é material do alvo |
+| Alvo com proteção/licença de terceiros | sim | sim | não — é material de terceiro |
 
-- **Analisar** um check é engenharia reversa legítima.
-- **Documentar** o método (como se faz) é publicação técnica legítima.
-- **Distribuir** uma ferramenta pronta que quebra a proteção de um produto específico
-  de terceiros é onde o risco jurídico (DMCA §1201 e equivalentes, EULA) se
-  materializa.
+- **Analisar** o alvo é trabalho seu.
+- **Documentar** o método (como se faz) é texto técnico seu.
+- **Republicar** trechos do alvo é publicar material de terceiro: a licença dele
+  passa a valer, como em qualquer outro item da matriz.
 
-**Prática do toolkit:** achados de proteção ficam em `work/<alvo>/notes/` (**fora do
-Git**). O que vai para `reports/` é *metodologia genérica* e *spec de comportamento*,
-não "o crack do produto X". Se você for publicar um caso de estudo, publique o método
-e o resultado comportamental, anonimize o alvo, e revise com assessoria se o produto
-for de terceiro.
+**Prática do toolkit:** achados ficam em `work/<alvo>/notes/` (**fora do Git**). O que
+vai para `reports/` é *metodologia genérica* e *spec de comportamento* — nunca material
+do alvo. Ao publicar um caso de estudo, o alvo entra como não redistribuível.
 
 ---
 

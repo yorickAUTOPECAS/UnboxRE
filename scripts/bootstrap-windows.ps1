@@ -148,7 +148,7 @@ $Catalog = @(
 
     # ── net ────────────────────────────────────────────────────────────────
     @{ Name = 'Fluxzy'; Probe = 'fluxzy'; Profiles = @('net'); Winget = 'Fluxzy.Fluxzy'; Url = 'https://www.fluxzy.io/'
-       Why = 'proxy MITM .NET com export HAR e regras em C#'; License = 'MIT' }
+       Why = 'proxy MITM .NET com export HAR e regras em C#'; License = 'GPL-3.0' }
 )
 
 # ───────────────────────────────────────────────────────────────────────────

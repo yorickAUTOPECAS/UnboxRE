@@ -251,12 +251,13 @@ Além do Ghidra, o que falta para análise estática *profissional e scriptável
 - **Como usar:** copiar para `x64dbg/release/{x32,x64}/plugins/`; configurar o perfil no menu.
 - **Integração:** plugin do x64dbg (a pasta G4).
 
-### b.7 PE-sieve + HollowsHunter + Moneta `⬜` — `BSD-2` / `BSD-2` / freeware sem licença declarada
+### b.7 PE-sieve + HollowsHunter + Moneta `⬜` — `BSD-2` / `BSD-2` / `GPL-3.0`
 
 - **O que faz:** detecta **injeção, hollowing, hooking, código não mapeado** em processo vivo; dump de regiões suspeitas.
 - **Quando usar:** alvo self-injecting/process-hollowing; validar se há código escondido; extrair o "payload real" já desempacotado da memória.
 - **Como usar:** `$ pe-sieve64.exe /pid 1234 /shellc /dir work/acme-cad/unpacked`
 - **Integração:** complementa o `DumpModule` do x64dbg-MCP; artefatos vão para `unpacked/`.
+- **Atribuição:** PE-sieve e HollowsHunter — hasherezade (BSD-2); Moneta — Forrest Orr, <https://github.com/forrest-orr/moneta> (GPL-3.0).
 
 ### b.8 Sysinternals (Procmon, Process Explorer, TCPView, Autoruns) `⬜` — `[COMERCIAL]` (grátis, EULA Microsoft)
 
