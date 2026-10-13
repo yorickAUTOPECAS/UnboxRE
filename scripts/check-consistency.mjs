@@ -32,6 +32,7 @@
 import { readFileSync, existsSync, readdirSync, statSync } from "node:fs";
 import { dirname, join, resolve, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { spawnSync } from "node:child_process";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(HERE, "..");
@@ -228,19 +229,38 @@ if (exists("config/mcp")) {
 }
 
 // ── 7. Relative markdown links resolve ───────────────────────────────────────
+// A link into a GITIGNORED path is not a broken link: the fetched third-party
+// trees (ghidra/, x64dbg/, rea-main/, x64dbg-mcp-server-main/), work/, generated
+// configs … are intentionally absent from a clean checkout and only appear after
+// fetch-tools. On a local machine (where rea-main/ exists) this is invisible; it
+// only surfaces in CI — which is exactly what happened, and is why we ask git
+// which targets it ignores instead of guessing from a directory list.
+const candidates = [];
 for (const file of docs) {
   if (!exists(file)) continue;
-  const text = read(file);
-  for (const m of text.matchAll(/\]\(([^)]+)\)/g)) {
+  for (const m of read(file).matchAll(/\]\(([^)]+)\)/g)) {
     let target = m[1].trim();
     if (/^(https?:|mailto:|#)/.test(target)) continue;
     target = target.split("#")[0];
     if (!target) continue;
     const resolved = resolve(join(ROOT, dirname(file)), decodeURIComponent(target));
-    if (!existsSync(resolved)) {
-      fail("links", `${file}: link relativo quebrado → ${target}`);
-    }
+    const rel = relative(ROOT, resolved).split(sep).join("/");
+    if (rel === ".." || rel.startsWith("../")) continue; // outside the repo
+    candidates.push({ file, target, rel });
   }
+}
+const ignoredPaths = new Set();
+if (candidates.length) {
+  const res = spawnSync("git", ["check-ignore", "--stdin"], {
+    cwd: ROOT,
+    input: candidates.map((c) => c.rel).join("\n"),
+    encoding: "utf8",
+  });
+  for (const line of (res.stdout || "").split(/\r?\n/)) if (line.trim()) ignoredPaths.add(line.trim());
+}
+for (const c of candidates) {
+  if (ignoredPaths.has(c.rel)) continue;                 // absent by design (fetched/ignored)
+  if (!existsSync(join(ROOT, c.rel))) fail("links", `${c.file}: link relativo quebrado → ${c.target}`);
 }
 
 // ── Report ───────────────────────────────────────────────────────────────────
