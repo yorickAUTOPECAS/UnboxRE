@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
     Fetches and installs the CORE third-party tools from their real upstreams.
@@ -242,6 +242,45 @@ function Expand-ZipInto {
     [System.IO.Compression.ZipFile]::ExtractToDirectory($ZipPath, $DestDir)
 }
 
+function Expand-TarGz {
+    <#
+        Extracts a .tgz with a tar that understands Windows paths.
+
+        Why this wrapper exists (regression, 2026-10-13): a clean-machine run
+        revealed that `tar` in PowerShell resolves to Git-for-Windows' GNU tar,
+        which reads "C:\..." as a REMOTE host spec — it fails with
+        "Cannot connect to C: resolve failed" and leaves the destination empty.
+        The REA install silently produced a rea-main/ with only a lockfile.
+
+        Windows ships bsdtar at %SystemRoot%\System32\tar.exe (Win10 1803+),
+        which accepts Windows paths. Prefer it; fall back to GNU tar with
+        --force-local (the flag that disables the remote-host interpretation).
+        Returns $true only if the tool succeeded AND something was extracted.
+    #>
+    param(
+        [Parameter(Mandatory)][string]$Archive,
+        [Parameter(Mandatory)][string]$Dest
+    )
+    New-DirIfMissing -Path $Dest -Apply | Out-Null
+    $sysTar = Join-Path $env:SystemRoot 'System32\tar.exe'
+    $attempts = @()
+    if ($env:SystemRoot -and (Test-PathExists $sysTar)) { $attempts += ,@($sysTar, @()) }
+    $attempts += ,@('tar', @())
+    $attempts += ,@('tar', @('--force-local'))
+    foreach ($a in $attempts) {
+        $exe = $a[0]
+        [string[]]$extra = $a[1]
+        try {
+            & $exe @extra -xzf $Archive -C $Dest 2>&1 | Out-Null
+            if ($LASTEXITCODE -eq 0) {
+                $entries = @(Get-ChildItem -LiteralPath $Dest -Force -ErrorAction SilentlyContinue)
+                if ($entries.Count -gt 0) { return $true }
+            }
+        } catch { }
+    }
+    return $false
+}
+
 function Install-PluginZip {
     <#
         The MCP plugin zip mirrors x64dbg's layout but the two tools disagree on
@@ -357,7 +396,10 @@ function Install-Tool {
             $tmp = Join-Path $CacheDir ('extract-' + [System.IO.Path]::GetRandomFileName())
             New-DirIfMissing -Path $tmp -Apply | Out-Null
             try {
-                tar -xzf $file -C $tmp
+                if (-not (Expand-TarGz -Archive $file -Dest $tmp)) {
+                    Write-Status 'FAIL' "não consegui extrair $((Split-Path -Leaf $file))" 'nenhum tar disponível funcionou (bsdtar e GNU tar falharam)'
+                    return $false
+                }
                 $inner = Join-Path $tmp 'package'
                 if (Test-PathExists $inner) {
                     Get-ChildItem -Path $inner -Force | ForEach-Object {
