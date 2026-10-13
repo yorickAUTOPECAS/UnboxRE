@@ -251,7 +251,7 @@ Além do Ghidra, o que falta para análise estática *profissional e scriptável
 - **Como usar:** copiar para `x64dbg/release/{x32,x64}/plugins/`; configurar o perfil no menu.
 - **Integração:** plugin do x64dbg (a pasta G4).
 
-### b.7 PE-sieve + HollowsHunter + Moneta `⬜` — `MIT` / `MIT` / `MIT`
+### b.7 PE-sieve + HollowsHunter + Moneta `⬜` — `BSD-2` / `BSD-2` / freeware sem licença declarada
 
 - **O que faz:** detecta **injeção, hollowing, hooking, código não mapeado** em processo vivo; dump de regiões suspeitas.
 - **Quando usar:** alvo self-injecting/process-hollowing; validar se há código escondido; extrair o "payload real" já desempacotado da memória.
@@ -499,7 +499,7 @@ agora dizer "não empacotado").
 | Ferramenta | O que faz | Quando usar | Como usar | Licença |
 |---|---|---|---|---|
 | **Scylla** | reconstrução de IAT | pós-unpack | plugin x64dbg | `GPL-3.0` |
-| **PE-sieve** | dump de processo/regiões | extrair código desempacotado da memória | `pe-sieve64 /pid N /dir out` | `MIT` |
+| **PE-sieve** | dump de processo/regiões | extrair código desempacotado da memória | `pe-sieve64 /pid N /dir out` | `BSD-2` |
 | **x64dbg `DumpModule`** (MCP) | dump de módulo em memória | idem, via IA | tool `DumpModule` | `GPL-3.0` |
 | **LIEF** | patch programático (seções, imports, EP) | patching reprodutível | API Python | `Apache-2.0` |
 | **Keystone** | montar instrução e injetar | patch de bytes | API Python | `BSD-3` |

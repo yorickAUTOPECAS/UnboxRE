@@ -4,9 +4,8 @@ Monorepo de ferramentas, documentação e automação para **engenharia reversa 
 (análise estática, dinâmica, desobfuscação, formatos de binário, rede e fuzzing),
 com foco em **operação por LLM/agentes** através de CLI e MCP.
 
-> **Contexto declarado de uso:** análise competitiva de software comercial e pesquisa
-> técnica, para reimplementação própria. Ver [docs/03-licencas.md](docs/03-licencas.md)
-> e a seção [Escopo e limites](#escopo-e-limites) antes de operar.
+> Licenças e compatibilidade: [docs/03-licencas.md](docs/03-licencas.md). Atribuição de
+> cada projeto de terceiros que o toolkit orquestra: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 ---
 
@@ -139,29 +138,7 @@ Automação:
 
 ---
 
-## 6. Escopo e limites
-
-Este toolkit é para **análise legítima**: interoperabilidade, pesquisa de segurança,
-resposta a incidentes, recuperação de dados e análise competitiva de produtos que
-você tem direito de estudar (licença de uso válida, ou software que você adquire
-legalmente para avaliação).
-
-O que o toolkit **faz**: entender binários, protocolos e formatos; documentar
-comportamento; medir desempenho; detectar e reproduzir falhas.
-
-O que o toolkit **não é**: catálogo de quebra de proteção de cópia de terceiros.
-Se a sua finalidade envolve contornar DRM/licenciamento de software de terceiros,
-a análise em si é lícita em muitos contextos, mas **a distribuição de contramedidas
-pode não ser** — leia [docs/03-licencas.md §4](docs/03-licencas.md) antes de publicar
-qualquer coisa derivada de análise de proteção.
-
-Ao publicar este toolkit no GitHub: publique **apenas o seu código e a sua
-documentação** (MIT), nunca binários de terceiros, amostras de alvos comerciais ou
-chaves. O [.gitignore](.gitignore) já bloqueia o essencial.
-
----
-
-## 7. Licença e atribuições
+## 6. Licença e atribuições
 
 O código próprio deste repositório (scripts, docs, configs) é **MIT** — ver
 [LICENSE](LICENSE), © UnboxRE contributors.

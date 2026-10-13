@@ -12,7 +12,7 @@
 
 ---
 
-## 0. Escopo e como este arquivo funciona
+## 0. Como este arquivo funciona
 
 | Pergunta | Resposta |
 |---|---|
@@ -61,6 +61,8 @@ deles **não** é publicado aqui — apenas referenciado, com crédito:
 | **RetDec** | MIT | Avast / <https://github.com/avast/retdec> |
 | **rev.ng** | `[FREEMIUM]` | <https://rev.ng> |
 | **Tigress** | `[COMERCIAL]` | <https://tigress.wtf> |
+| **capa** (`flare-capa`) | Apache-2.0 | Mandiant / FLARE / <https://github.com/mandiant/capa> |
+| **retoolkit** | Apache-2.0 | mentebinaria / <https://github.com/mentebinaria/retoolkit> |
 
 ---
 
@@ -95,6 +97,8 @@ deles **não** é publicado aqui — apenas referenciado, com crédito:
 | **redress** | MIT | <https://github.com/goretk/redress> |
 | **rustfilt** | MIT / Apache-2.0 | <https://github.com/luser/rustfilt> |
 | **bincat** | MIT | Airbus SecLab / <https://github.com/airbus-seclab/bincat> |
+| **ROPgadget** | BSD-3 | Jonathan Salwan / <https://github.com/JonathanSalwan/ROPgadget> |
+| **pwntools** | MIT (com trechos GPL-2.0/BSD-2) | Gallopsled / <https://github.com/Gallopsled/pwntools> |
 
 ---
 
@@ -117,6 +121,12 @@ deles **não** é publicado aqui — apenas referenciado, com crédito:
 | **LLDB** | Apache-2.0 (LLVM) | <https://lldb.llvm.org> |
 | **WinDbg + TTD** | `[COMERCIAL]` (grátis) | Microsoft / <https://learn.microsoft.com/windows-hardware/drivers/debugger/> |
 | **Sysinternals** (Procmon, ProcExp, TCPView, Autoruns) | `[COMERCIAL]` (grátis) | Microsoft / <https://learn.microsoft.com/sysinternals/> |
+| **frida-tools** (pacote CLI) | `wxWindows`/LGPL-like | parte do projeto Frida — Ole André V. Ravnås / <https://github.com/frida/frida-tools> |
+| **PE-sieve** | BSD-2 | hasherezade / <https://github.com/hasherezade/pe-sieve> |
+| **HollowsHunter** | BSD-2 | hasherezade / <https://github.com/hasherezade/hollows_hunter> |
+| **Moneta** | licença não declarada pelo autor (freeware) | hasherezade / <https://hasherezade.net> |
+| **QEMU** (`qemu-user`) | GPL-2.0 | <https://www.qemu.org> |
+| **API Monitor** | `[COMERCIAL]` (freeware, sem redistribuição) | Rohitab Batra / <http://www.rohitab.com/apimonitor> |
 
 ---
 
@@ -194,6 +204,8 @@ deles **não** é publicado aqui — apenas referenciado, com crédito:
 | **Foundry (`cast`)** | MIT / Apache-2.0 | <https://github.com/foundry-rs/foundry> |
 | **Jython** | PSF | <https://www.jython.org> |
 | **PyGhidra** | Apache-2.0 | parte do Ghidra / <https://github.com/NationalSecurityAgency/ghidra> |
+| **jefferson** | MIT | Sviehb / <https://github.com/sviehb/jefferson> |
+| **ubi_reader** | GPL-3.0 | JR Spruitt — mantido por onekey-sec / <https://github.com/onekey-sec/ubi_reader> |
 
 ---
 
@@ -210,6 +222,7 @@ deles **não** é publicado aqui — apenas referenciado, com crédito:
 | **Scapy** | GPL-2.0 | <https://github.com/secdev/scapy> |
 | **boofuzz** | GPL-2.0 | <https://github.com/jtpereyda/boofuzz> |
 | **AFL++** | Apache-2.0 | <https://github.com/AFLplusplus/AFLplusplus> |
+| **Fluxzy** | GPL-3.0 (Core em dupla licença: GPL-3.0 ou comercial) | Haga Rakotoharivelo / <https://github.com/haga-rak/fluxzy.core> |
 
 ---
 
@@ -246,6 +259,7 @@ deles **não** é publicado aqui — apenas referenciado, com crédito:
 | **Node.js** | MIT | OpenJS Foundation / <https://nodejs.org> |
 | **Python** | PSF-2.0 | Python Software Foundation / <https://www.python.org> |
 | **OpenJDK** | GPL-2.0 + Classpath | Oracle / <https://openjdk.org> |
+| **Rust toolchain** (`rustc`, `cargo`, `rust-demangler`) | MIT / Apache-2.0 | Rust Project Developers / <https://www.rust-lang.org> |
 | **Zig** | MIT | Zig Software Foundation / <https://ziglang.org> |
 | **`uv`** | MIT / Apache-2.0 | Astral / <https://github.com/astral-sh/uv> |
 | **`just`** | CC0 | <https://github.com/casey/just> |
@@ -254,6 +268,40 @@ deles **não** é publicado aqui — apenas referenciado, com crédito:
 | **Typer** | MIT | <https://github.com/fastapi/typer> |
 | **Chocolatey** | Apache-2.0 | <https://chocolatey.org> |
 | **winget** | MIT | Microsoft / <https://github.com/microsoft/winget-cli> |
+| **Xcode Command Line Tools** (`otool`, `nm`, `codesign`, `atos`) | `[COMERCIAL]` (grátis, sem redistribuição) | Apple / <https://developer.apple.com/xcode> |
+| **CMake** | BSD-3 | Kitware / <https://cmake.org> · <https://github.com/Kitware/CMake> |
+| **Ninja** | Apache-2.0 | <https://ninja-build.org> · <https://github.com/ninja-build/ninja> |
+
+---
+
+### 11.1 Pacotes de base instalados pelos bootstraps (Debian/Ubuntu)
+
+Estes não são ferramentas de RE: são as dependências de sistema que os bootstraps
+instalam (`apt-get install`) mais os utilitários que acompanham o host. Os créditos e
+as licenças são dos projetos de origem; o empacotamento é do Debian/Ubuntu.
+
+| Pacote | Licença | Autor / Upstream |
+|---|---|---|
+| **Ubuntu (base do WSL)** | múltiplas (sobretudo GPL-2+/MIT), marca Canonical | Canonical / <https://ubuntu.com/legal> |
+| **build-essential** | GPL-2+ (metapacote: apenas a lista, sem código) | Debian — Scott James Remnant e outros / <https://packages.debian.org/build-essential> |
+| **cpio** | GPL-3+ | GNU Project / <https://www.gnu.org/software/cpio> |
+| **curl** | licença `curl` (derivada de MIT/X) | Daniel Stenberg / <https://curl.se/docs/copyright.html> |
+| **ca-certificates** | GPL-2+ (empacotamento) · MPL-2.0 (bundle Mozilla) | Debian · Mozilla / <https://packages.debian.org/ca-certificates> |
+| **device-tree-compiler** (`dtc`) | GPL-2+ (`dtc`) · BSD-2 (`libfdt`) | David Gibson / <https://git.kernel.org/pub/scm/utils/dtc/dtc.git> |
+| **mtd-utils** | GPL-2+ (com partes BSD-2/BSD-3/Expat) | <http://www.linux-mtd.infradead.org> |
+| **nasm** | BSD-2 | NASM / <https://www.nasm.us> |
+| **python3-pip** (`pip`) | MIT | PyPA / <https://pip.pypa.io> |
+| **python3-venv** (`ensurepip`) | PSF-2.0 | Python Software Foundation / <https://docs.python.org/3/library/venv.html> |
+| **socat** | GPL-2.0 (com exceção OpenSSL) | Gerhard Rieger / <http://www.dest-unreach.org/socat/> |
+| **squashfs-tools** | GPL-2+ | Phillip Lougher / <https://github.com/plougher/squashfs-tools> |
+| **tcpdump** | BSD-3 | tcpdump.org / <https://www.tcpdump.org> |
+| **unzip** | licença Info-ZIP | Info-ZIP / <https://infozip.sourceforge.net> |
+| **xxd** | licença Vim | parte do Vim — Bram Moolenaar e contribuidores / <https://github.com/vim/vim> |
+| **android-sdk-build-tools** | Apache-2.0 | AOSP / Google / <https://developer.android.com/tools> |
+
+> Os utilitários acima entram por `apt` e são **usados**, nunca redistribuídos neste
+> repositório. Copyleft forte (GPL) aqui não contamina o MIT do UnboxRE porque a
+> chamada é por processo (ver [docs/03-licencas.md](docs/03-licencas.md) §2.2).
 
 ---
 

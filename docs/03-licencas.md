@@ -65,8 +65,7 @@ exige atribuição).
 | pefile | MIT | sim |
 | Kaitai Struct | MIT | sim |
 | mitmproxy | MIT | sim |
-| PE-sieve / HollowsHunter | MIT | sim |
-| Moneta | MIT | sim |
+| PE-sieve / HollowsHunter | BSD-2 | sim, mantendo o aviso de copyright |
 | GoReSym / redress | MIT | sim |
 | ImHex | GPL-2.0 | **não** |
 | Frida (core) | `wxWindows`/LGPL-like | sim, com termos (biblioteca) |
@@ -115,6 +114,8 @@ exige atribuição).
 | HTTP Toolkit | `[FREEMIUM]` | interceptação |
 | VMware / Genymotion | `[COMERCIAL]` | VirtualBox/Hyper-V são alternativas |
 | Sysinternals | `[COMERCIAL]` (grátis) | EULA Microsoft |
+| Moneta | freeware **sem licença declarada** | trate como *todos os direitos reservados*: use, não redistribua |
+| Xcode Command Line Tools (`otool`, `codesign`, `atos`) | `[COMERCIAL]` (grátis) | EULA Apple; só no host macOS |
 
 Nenhum item comercial é **requisito** do toolkit — todos têm caminho aberto no §2.1.
 
