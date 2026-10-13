@@ -72,9 +72,17 @@ e uma das strings originais aparece em `strings`/`GetStrings`.
 > normal que você pode ler sem tocar na VM.
 
 ```
+0. Triage embutido (offline, sem DIE): node scripts/identify-protections.mjs alvo.exe
+   Ele imprime seções + entropia + assinatura e um veredito. "PROVAVELMENTE PROTEGIDO"
+   exige um achado de ALTA confiança (assinatura ou estrutura); entropia alta sozinha
+   cai em "possivelmente incomum". Evidência com amostras reais dos dois protetores:
+   reports/evidence-packers-vmp-themida.md
 1. Triage estático: Ghidra (GUI) → veja entropia de seções e o tamanho das seções
    virtuais. Registre em evidence/01-secoes.txt
-2. Dynamic: x64dbg → SetHardwareBreakpoint em acessos à região de .vmp0/.themida
+2. Dynamic: x64dbg → SetHardwareBreakpoint em acessos à região do stub
+   (`.themida`/`.winlice` no Themida; no VMProtect 3.x a seção NÃO se chama `.vmpN` —
+   o nome é aleatório e o mapa sai da triagem acima. Em ambos o entry point cai fora
+   de `.text`.)
 3. Observe quais funções são chamadas DE FORA da VM (as "fronteiras"):
    GetReferences / ListBreakpoints → mapa de callers
 4. Meça: quantas funções distintas entram na VM? (o event log do MCP ajuda)
@@ -215,7 +223,10 @@ nomes sumiram mas a estrutura não.
 
 ---
 
-## Cenário 9 — Mach-O (macOS / iOS)
+## Cenário 9 — Mach-O (macOS / iOS) — **fora de escopo por ora**
+
+> Roadmap. O suporte validado hoje é Windows; sem um Mac este cenário é só estático
+> (e o dinâmico, com `lldb`, nem isso).
 
 ```
 Estático:  Ghidra com o loader Mach-O (funciona bem; fat binaries exigem escolher a fatia)
@@ -230,7 +241,10 @@ iOS:       decrypted IPA necessário (o binário da App Store é criptografado �
 
 ---
 
-## Cenário 10 — ELF Linux / ARM
+## Cenário 10 — ELF Linux / ARM — **fora de escopo por ora**
+
+> Roadmap. Depende do laboratório Linux/WSL, que não está validado nesta rodada
+> (ver [04-instalacao.md](04-instalacao.md) §6).
 
 ```bash
 file ./target && checksec --file=./target         # pwntools

@@ -110,9 +110,16 @@ still the ground truth, as `docs/06-workflows.md` describes.
 
 ## 5. What this does NOT prove
 
-- No VMProtect/Themida **sample** was available to run a positive control for
-  those two — only UPX was confirmed end to end. The signature table for the
-  others is code-reviewed, not sample-tested.
+- ~~No VMProtect/Themida sample was available~~ — **closed later the same day**:
+  official DEMO builds of both protectors produced real samples from this same
+  target, and `identify-protections.mjs` flags all of them
+  (`VMProtect 3.x (padrão estrutural)` on two independent VMProtect outputs,
+  `Themida / WinLicense` on the Themida one). See
+  [evidence-packers-vmp-themida.md](evidence-packers-vmp-themida.md), which also
+  records the two false positives that this wider negative-control sweep exposed
+  (`.NET` as high confidence; high entropy alone). What remains unproven is the
+  **dynamic** half: those protected artifacts do not load on this machine
+  (`0xC000007B`), so no unpacking was confirmed — static triage only.
 - The Linux/WSL half of the toolkit (ELF, pwndbg, unblob) was not exercised —
   this machine has the WSL binary but no distro installed.
 - x64dbg-MCP's live `tools/list` was not exercised: it needs the x64dbg GUI open,

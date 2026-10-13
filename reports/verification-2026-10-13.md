@@ -131,15 +131,30 @@ After that fix: **CI run [38467610746](https://github.com/yorickAUTOPECAS/UnboxR
   The x64dbg-MCP server answers only with the x64dbg GUI open, which a headless
   host/CI session cannot provide — installed + loadable is proven, the live call is a
   manual step (`docs/05-mcp.md`).
-- **VMProtect / Themida positive controls.** Only UPX was sample-tested end to end
-  (`reports/evidence-packer-upx.md`); the other signatures are code-reviewed, not
-  sample-tested — no such sample was available.
+- ~~**VMProtect / Themida positive controls.** Only UPX was sample-tested end to end…~~
+  **Closed the same day, in a later round:** official DEMO builds of both protectors
+  produced real samples from the same target, and the detector flags all of them —
+  two independent VMProtect outputs (one produced headlessly by
+  `VMProtect_Con.exe`, so it is reproducible in one line) and one Themida output.
+  That round also found and fixed two false positives (`.NET` classified as high
+  confidence; high entropy alone reaching the top verdict — 5 of 60 stock Windows
+  binaries were mislabeled). See [evidence-packers-vmp-themida.md](evidence-packers-vmp-themida.md).
+  Still unproven: the **dynamic** half — those protected artifacts do not load here
+  (`0xC000007B`), and the Themida command line (`Themida64.exe /protect x.tmd`)
+  hangs without output, so the Themida step needs the GUI.
 - **The Linux/WSL half** (ELF, pwndbg, unblob, AFL++) was not exercised: this machine
   has the `wsl` binary but no distro installed.
 - **`rea-main` submodule integrations** (binwalk/unblob/jadx-headless MCP) were not
   exercised; the Ghidra provider was (`rea doctor` → `ghidra: healthy`).
-- **Full license matrix (~90 rows).** `config/licenses.json` verifies 24 continuously;
-  the remaining rows are still audited by hand. Extending the registry is the next step.
+- **Full license matrix (~90 rows).** `config/licenses.json` now verifies **69** rows
+  against the primary source (was 24), after a second audit round that corrected
+  **eight** wrong labels (Keystone, de4dot-cex, Speakeasy, TitanHide, al-khaser,
+  PE-bear, D-810, objection). The remaining gap is measured, not hidden:
+  `check-consistency.mjs` reports **23/29** of the bootstrap catalog with a verified
+  line, and the six left out (Sysinternals Procmon, API Monitor, WSL/Ubuntu, and the
+  firmware trio ubireader/sasquatch/firmware-mod-kit) are exactly the ones with no
+  readable upstream LICENSE — the registry only holds rows a primary source can
+  confirm. See `reports/auditoria-licencas.md` §5.
 - **The 570 MB Ghidra / 31 MB x64dbg downloads** were resolved (URLs + asset match) but
   not re-downloaded on this machine (both were already present). The extraction + marker
   logic was exercised on the MCP plugin.

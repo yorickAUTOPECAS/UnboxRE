@@ -14,6 +14,18 @@
  * heuristics. It is a triage signal, not a verdict: it points you at the payload
  * extractor, it does not replace dynamic confirmation.
  *
+ * Confidence levels, and what the verdict actually means
+ * -----------------------------------------------------
+ *   high   a signature or structure that identifies a protector
+ *   medium evidence of a rebuilt/relocated image (EP outside .text, section
+ *          without file data) — suspicious, not conclusive
+ *   low    statistics (high entropy)
+ *   info   a fact about the FORMAT, not a protection: the CLR header means
+ *          "managed assembly", which is true of every .NET binary. It is
+ *          reported, but it must never by itself produce "PROVAVELMENTE
+ *          PROTEGIDO" — that false positive fired on powershell.exe (and every
+ *          other managed binary) until this note and the verdict rule below.
+ *
  * Usage: node scripts/identify-protections.mjs <file.exe> [--json]
  * Exit:  0 analysed (even if packed) · 2 could not read the file.
  */
@@ -142,11 +154,29 @@ if (nameIs(".enigma1", ".enigma2")) {
   add("Enigma Protector", "high", "seções .enigmaN");
 }
 if (clrDir.rva !== 0 || /mscoree\.dll/i.test(strings)) {
-  add(".NET (CLR)", "high", "cabeçalho CLR (COM descriptor) presente — assembly gerenciado");
+  add(".NET (CLR)", "info", "cabeçalho CLR (COM descriptor) presente — assembly gerenciado (não é proteção; se estiver ofuscado, use de4dot/NETReactorSlayer)");
 }
 
 // ── Structural heuristics ────────────────────────────────────────────────────
 const epSection = sections.find((s) => entryPoint >= s.virtualAddress && entryPoint < s.virtualAddress + Math.max(s.virtualSize, s.sizeRaw));
+
+// Padrão estrutural de protetor moderno (VMProtect 3.x).
+//
+// Achado com amostra real (VMProtect 3.11 demo protegendo um PE): as seções
+// ORIGINAIS ficam sem dados no arquivo (rawSize 0, virtualSize > 0) e todo o
+// conteúdo vai para seções novas de alta entropia com nomes fora do padrão
+// (".4/.", ".xS&", ".i^-"), uma delas contendo o entry point. O VMProtect 3.x
+// NÃO deixa mais ".vmpN" nem marcador em texto/UTF-16 — a tabela por nome/marcador
+// não o vê; esta combinação vê. É um padrão estrutural, não uma assinatura de
+// bytes, e é por isso que o achado explica a evidência em vez de só nomear.
+const standardName = (n) => /^\.(text|code|rdata|data|pdata|idata|didat|rsrc|reloc|sdata|bss|tls|debug|CRT|itext|edata|ndata|xdata)/i.test(n);
+const emptiedStandard = sections.filter((s) => s.rawSizeZero && s.virtualSize > 0x1000 && standardName(s.name));
+const junkCarrier = sections.filter((s) => s.sizeRaw > 0 && s.entropy >= 7.0 && !standardName(s.name));
+if (epSection && !standardName(epSection.name) && epSection.entropy >= 7.0 &&
+    emptiedStandard.length >= 2 && junkCarrier.length >= 1) {
+  add("VMProtect 3.x (padrão estrutural)", "high",
+    `seções originais esvaziadas (${emptiedStandard.map((s) => s.name).join(", ")}); conteúdo em seção nova de alta entropia, com o entry point em "${epSection.name}" (entropia ${epSection.entropy}, nome fora do padrão) — envelope típico de VMProtect 3.x, que não deixa marcador textual`);
+}
 if (epSection && !/\.text|\.code/i.test(epSection.name)) {
   add("Entry point fora de .text", "medium", `entrypoint cai em "${epSection.name}"`);
 }
@@ -165,7 +195,19 @@ if (lowRawHighVirt.length) {
   add("Seções virtuais sem dados no arquivo", "medium", lowRawHighVirt.map((s) => s.name).join(", "));
 }
 
-const packed = findings.some((f) => f.confidence === "high") || highEntropy.length > 0;
+// A verdict must be driven by evidence of PROTECTION, never by a format marker.
+// 'info' findings are reported (they are useful) but cannot, on their own, turn a
+// clean binary into "PROVAVELMENTE PROTEGIDO" — that is the whole point of the
+// level existing.
+//
+// Measured against 60 stock Windows binaries: treating high entropy alone as
+// "PROVAVELMENTE PROTEGIDO" flagged 5 of them (Windows Update binaries with a
+// compressed resource, Defrag, ClipUp…). A low-confidence statistic is not a
+// protection verdict, so the top verdict now requires a HIGH finding (a real
+// signature/structure); entropy and medium signals land on "possivelmente
+// incomum", which is the honest label for "something is off, look closer".
+const notable = findings.filter((f) => f.confidence !== "info");
+const packed = findings.some((f) => f.confidence === "high");
 
 const report = {
   file: basename(file),
@@ -174,7 +216,7 @@ const report = {
   entryPoint: `0x${entryPoint.toString(16)}`,
   sections: sections.map((s) => ({ name: s.name, virtualSize: s.virtualSize, rawSize: s.sizeRaw, entropy: s.entropy, flags: `${s.writable ? "W" : "-"}${s.executable ? "X" : "-"}` })),
   findings,
-  verdict: findings.length === 0 ? "sem assinatura conhecida" : packed ? "PROVAVELMENTE PROTEGIDO" : "possivelmente incomum",
+  verdict: notable.length === 0 ? "sem assinatura conhecida" : packed ? "PROVAVELMENTE PROTEGIDO" : "possivelmente incomum",
 };
 
 if (JSON_OUT) {
@@ -189,10 +231,12 @@ if (JSON_OUT) {
     console.log(`    ${s.name.padEnd(10)} virt=${String(s.virtualSize).padEnd(8)} raw=${String(s.rawSize).padEnd(8)} entropia=${s.entropy} ${s.flags}`);
   }
   console.log("");
-  if (report.findings.length === 0) {
+  const tag = { high: "!!", medium: "? ", low: "? ", info: "i " };
+  for (const f of report.findings) {
+    console.log(`  [${tag[f.confidence] ?? "? "}] ${f.name} (${f.confidence}) — ${f.detail}`);
+  }
+  if (report.verdict === "sem assinatura conhecida") {
     console.log("  [ok] nenhuma assinatura de packer/protetor conhecida.");
-  } else {
-    for (const f of report.findings) console.log(`  [${f.confidence === "high" ? "!!" : "? "}] ${f.name} (${f.confidence}) — ${f.detail}`);
   }
   console.log(`\n  Veredito: ${report.verdict}`);
   console.log("");
