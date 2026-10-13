@@ -20,6 +20,7 @@
 | Então por que este arquivo existe? | Para **atribuir crédito** a tudo que o toolkit orquestra e para deixar explícito o que é de quem. |
 | E o código próprio (`scripts/`, `docs/`, `config/`)? | É **MIT**, © UnboxRE contributors — ver [LICENSE](LICENSE). |
 | Posso redistribuir algo daqui? | Só o que é MIT próprio. Para cada ferramenta, use o upstream indicado na tabela. |
+| O que a [LICENSE](LICENSE) cobre? | Apenas o código e a documentação originais deste repositório (`scripts/`, `docs/`, `config/`). Ferramentas de terceiros mantêm as próprias licenças. |
 
 **Não afiliação.** O UnboxRE é um projeto independente e **não é afiliado, endossado
 ou patrocinado** por nenhum dos projetos citados. Nomes de produtos são marcas dos
