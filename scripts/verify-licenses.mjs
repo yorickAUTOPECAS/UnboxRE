@@ -107,8 +107,17 @@ for (const c of checks) {
         failures.push(`${c.slug}: github/api detecta "${detected}" mas declara "${c.declared}"`);
       }
     } catch (e) {
-      row.notes.push(`API de licença indisponível: ${e.message}`);
-      if (STRICT) failures.push(`${c.slug}: falha de rede consultando a API (${c.repo})`);
+      // Um 404 NÃO é falha de rede: é o GitHub dizendo que não detecta um arquivo
+      // de licença no branch default (ex.: capstone-engine/capstone, cujo
+      // LICENSE.TXT só existe em master/v5). Nesse caso a evidência primária é o
+      // LICENSE bruto — e é ele que precisa estar declarado (rawUrl + needles).
+      if (/HTTP 404/.test(e.message ?? "")) {
+        row.apiSpdx = "NOASSERTION";
+        row.notes.push("GitHub não detecta licença no branch default (404) — validado pelo LICENSE bruto");
+      } else {
+        row.notes.push(`API de licença indisponível: ${e.message}`);
+        if (STRICT) failures.push(`${c.slug}: falha de rede consultando a API (${c.repo})`);
+      }
     }
   }
 

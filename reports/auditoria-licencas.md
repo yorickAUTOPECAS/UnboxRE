@@ -139,3 +139,76 @@ O que já existe hoje:
   obrigatórios existem.
 
 Nada disso valida licença contra o upstream, que é o buraco que este relatório expõe.
+
+---
+
+## 5. Rodada 2 (mesmo dia) — a passada completa virou código
+
+A §4 dizia que uma passada completa "precisa de código, não de olho". Foi o que se fez:
+`config/licenses.json` cresceu de 24 para **69 linhas**, cada uma verificável por
+`scripts/verify-licenses.mjs` (API de licença do GitHub **e** o `LICENSE`/`COPYING` bruto
+com `needles` literais). A varredura achou **oito rótulos errados** — a mesma classe de
+erro da §1, agora em ferramentas de primeira linha do toolkit:
+
+| Ferramenta | Dizia | Upstream diz | Evidência (fonte primária) |
+|---|---|---|---|
+| Keystone | BSD-3 | **GPL-2.0** | `keystone-engine/keystone` → `COPYING` (GPLv2) |
+| de4dot-cex | MIT | **GPL-3.0** | `ViRb3/de4dot-cex` → `COPYING` (GPLv3) |
+| Speakeasy | Apache-2.0 | **MIT** | `mandiant/speakeasy` → `LICENSE.txt` |
+| TitanHide | GPL-3.0 | **MIT** | `mrexodia/TitanHide` (rellicenciado upstream) |
+| al-khaser | GPL-3.0 | **GPL-2.0** | `LordNoteworthy/al-khaser` → `LICENSE` |
+| PE-bear | MIT | **GPL-2.0** | `hasherezade/pe-bear` → `LICENSE` |
+| D-810 | MIT | **AGPL-3.0** | `joydo/d810` → `LICENSE` |
+| objection | MIT | **GPL-3.0** | `sensepost/objection` → `LICENSE` |
+
+O padrão se repetiu e vale nomear: a maioria dos erros era **permissiva declarada
+onde o upstream é copyleft** (Keystone, PE-bear, D-810, objection, de4dot-cex). É o
+erro mais caro possível, porque "MIT" autoriza empacotar/redistribuir sem cumprir a
+licença — quem lê a matriz para decidir isso é induzido ao erro.
+
+Correções aplicadas em `docs/03-licencas.md` (§2.1/§2.2), `THIRD_PARTY_NOTICES.md`
+e `config/licenses.json`, com a nota da auditoria; todas reverificadas por
+`node scripts/verify-licenses.mjs` → **`[OK] 69 licenças declaradas batem com a fonte
+primária`** (`exit 0`).
+
+### 5.1 O lote que faltava (e o que deliberadamente ficou de fora)
+
+Entraram também os runtimes e ferramentas de infraestrutura que o bootstrap instala e
+que não tinham linha verificada: Zig, CMake, Ninja, Rust, Python, Node.js, radare2,
+retoolkit, Frida, Wireshark, QEMU e Fluxzy. Dois casos exigem olho humano em vez de
+API:
+
+- **Rust** é dupla (`MIT OR Apache-2.0`); a API do GitHub detecta o lado Apache-2.0, que
+  é o que a linha declara, e o `LICENSE-APACHE` bruto é conferido de qualquer forma.
+- **Frida** é `wxWindows Library Licence 3.1` — o GitHub não detecta, e o SPDX deprecia
+  o identificador `wxWindows` em favor de `LGPL-2.0+ with WxWindows-exception-3.1`. A
+  linha declara `wxWindows` com a ressalva registrada e o `COPYING` bruto como evidência.
+
+**Ficaram fora, de propósito:** Procmon (Sysinternals), API Monitor, WSL/Ubuntu e o trio
+de firmware (ubireader, sasquatch, firmware-mod-kit). Nenhum tem `LICENSE` legível no
+upstream que o verificador consiga abrir (proprietário/freeware sem EULA pública, ou
+repositório que saiu do ar/foi movido). O registro só aceita linha que uma fonte
+primária confirme — e é isso que faz o número abaixo significar algo.
+
+### 5.2 Cobertura medível, com o resto declarado em voz alta
+
+`scripts/check-consistency.mjs` passou a **medir** a cobertura em vez de deixá-la
+implícita, cruzando os nomes do catálogo do bootstrap (`bootstrap-windows.ps1`) com as
+linhas registradas (é informativo, não gate):
+
+```
+licenças com linha verificada: 23/29 do bootstrap · registradas: 69
+faltam 6: Procmon (Sysinternals), API Monitor, WSL/Ubuntu, ubireader, sasquatch, firmware-mod-kit
+```
+
+Antes desta rodada o mesmo número era 11/29 — a diferença não é cosmética: eram 18
+ferramentas que o bootstrap instala **sem** nenhuma linha conferida contra o upstream.
+
+### 5.3 Robustez achada no caminho
+
+`verify-licenses.mjs` tratava **HTTP 404** da API de licença como falha de rede. Não é:
+é o GitHub dizendo que não detecta arquivo de licença no branch default (caso real:
+`capstone-engine/capstone`, cujo `LICENSE.TXT` só existe em `master`). Com `--strict`
+isso era fatal e derrubava o CI por um dado, não por um erro. Agora 404 = dado
+("não detectado"), validado pelo `LICENSE` bruto; só falha de rede real continua
+alarmando em `--strict`.

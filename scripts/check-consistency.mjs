@@ -50,6 +50,21 @@ function check(cond, name, msg) {
   else fail(name, msg);
 }
 
+/** Recursively collect files under a directory (repo-relative, forward slashes). */
+function walkFiles(dir) {
+  const out = [];
+  const walk = (d) => {
+    for (const name of readdirSync(join(ROOT, d))) {
+      const rel = join(d, name);
+      const st = statSync(join(ROOT, rel));
+      if (st.isDirectory()) walk(rel);
+      else out.push(rel.split(sep).join("/"));
+    }
+  };
+  walk(dir);
+  return out;
+}
+
 /** Recursively collect *.md under docs/ and scripts/, plus the root files. */
 function collectDocs() {
   const files = ["README.md", "THIRD_PARTY_NOTICES.md", "LICENSE"];
@@ -134,6 +149,39 @@ if (!failures.some((f) => f.check === "completeness")) {
   ok(`completeness: ${catalogNames.length} ferramentas do bootstrap têm crédito`);
 }
 
+// ── 2b. PowerShell files must carry a UTF-8 BOM ──────────────────────────────
+// Windows PowerShell 5.1 reads a BOM-less UTF-8 .ps1 as ANSI; a mojibake'd em
+// dash inside a double-quoted string can decode to a smart quote and make the
+// script FAIL TO PARSE. That happened for real (fetch-tools.ps1 shipped without
+// the BOM while every sibling had it). This keeps the convention enforced.
+const psFiles = walkFiles("scripts").filter((f) => f.endsWith(".ps1"));
+for (const f of psFiles) {
+  const buf = readFileSync(join(ROOT, f));
+  const bom = buf.length >= 3 && buf[0] === 0xef && buf[1] === 0xbb && buf[2] === 0xbf;
+  check(bom, `bom:${f}`, `${f} não tem BOM UTF-8 (PS 5.1 lê UTF-8 sem BOM como ANSI e pode não parsear)`);
+}
+
+// ── 2c. License-registry coverage (informativo: mede o que ainda falta) ──────
+// Não é gate: o objetivo é que o número visível diga o tamanho real do que ainda
+// não tem linha verificada contra o upstream.
+const registered = [];
+if (manifest) for (const [, t] of coreTools) if (t.displayName) registered.push(t.displayName);
+try {
+  for (const t of JSON.parse(read("config/licenses.json")).tools ?? []) if (t.name) registered.push(t.name);
+} catch { /* already reported above */ }
+const norm = (s) => String(s).toLowerCase().replace(/[^a-z0-9]/g, "");
+const regNorm = registered.map(norm).filter(Boolean);
+const uncovered = [];
+for (const name of catalogNames) {
+  const key = norm(name.split(/[ (/]/)[0]);
+  if (!key || !regNorm.some((r) => r.includes(key) || key.includes(r))) uncovered.push(name);
+}
+if (uncovered.length) {
+  ok(`licenças: ${catalogNames.length - uncovered.length}/${catalogNames.length} do bootstrap têm linha verificada; faltam ${uncovered.length}: ${uncovered.join(", ")}`);
+} else {
+  ok(`licenças: ${catalogNames.length}/${catalogNames.length} do bootstrap têm linha verificada`);
+}
+
 // ── 3. Bootstrap profile names ───────────────────────────────────────────────
 let validProfiles = [];
 if (exists("scripts/bootstrap-windows.ps1")) {
@@ -215,6 +263,17 @@ for (const file of docs) {
   }
 }
 
+// ── 5b. Every script is cited somewhere in the docs ──────────────────────────
+const docCorpus = docs.filter(exists).map(read).join("\n");
+const scriptFiles = walkFiles("scripts")
+  .filter((f) => /\.(ps1|sh|mjs)$/.test(f))
+  .filter((f) => !f.includes("/lib/"));
+const undocumented = scriptFiles.filter((f) => !docCorpus.includes(f.split("/").pop()));
+for (const f of undocumented) {
+  fail("documented", `${f} existe mas não é citado em nenhuma doc (README.md / scripts/README.md)`);
+}
+if (!undocumented.length) ok(`documented: ${scriptFiles.length} scripts citados na documentação`);
+
 // ── 6. MCP JSON templates parse ──────────────────────────────────────────────
 if (exists("config/mcp")) {
   for (const name of readdirSync(join(ROOT, "config/mcp"))) {
@@ -273,6 +332,12 @@ const summary = {
     validProfiles,
     mcpFlags: validFlags,
   },
+  licenseCoverage: {
+    registered: registered.length,
+    catalog: catalogNames.length,
+    verified: catalogNames.length - uncovered.length,
+    uncovered,
+  },
 };
 
 if (JSON_OUT) {
@@ -282,6 +347,7 @@ if (JSON_OUT) {
   console.log("UnboxRE — verificação de consistência (docs ↔ código ↔ licenças)");
   console.log("─".repeat(66));
   console.log(`  núcleo: ${summary.checks.coreTools} · catálogo: ${summary.checks.catalogTools} · perfis: ${validProfiles.length} · flags MCP: ${validFlags.length}`);
+  console.log(`  licenças com linha verificada: ${summary.licenseCoverage.verified}/${summary.licenseCoverage.catalog} do bootstrap · registradas: ${summary.licenseCoverage.registered}`);
   console.log("");
   if (failures.length === 0) {
     console.log(`  [OK] nenhuma divergência encontrada (${notes.length} verificações).`);

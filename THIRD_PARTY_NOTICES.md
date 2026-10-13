@@ -72,7 +72,7 @@ deles **não** é publicado aqui — apenas referenciado, com crédito:
 |---|---|---|
 | **LIEF** | Apache-2.0 | Quarkslab / <https://github.com/lief-project/LIEF> |
 | **Capstone** | BSD-3 | <https://github.com/capstone-engine/capstone> |
-| **Keystone** | BSD-3 | <https://github.com/keystone-engine/keystone> |
+| **Keystone** | GPL-2.0 | <https://github.com/keystone-engine/keystone> |
 | **YARA** | BSD-3 | VirusTotal / <https://github.com/VirusTotal/yara> |
 | **YARA-X** | BSD-3-Clause | VirusTotal / <https://github.com/VirusTotal/yara-x> |
 | **Detect It Easy (DIE)** | MIT | horsicq / <https://github.com/horsicq/Detect-It-Easy> |
@@ -87,7 +87,7 @@ deles **não** é publicado aqui — apenas referenciado, com crédito:
 | **pyelftools** | Unlicense / public domain | Eli Bendersky / <https://github.com/eliben/pyelftools> |
 | **patchelf** | GPL-3.0 | NixOS / <https://github.com/NixOS/patchelf> |
 | **dwarves (`pahole`)** | GPL-2.0 | <https://github.com/acmel/dwarves> |
-| **PE-bear** | MIT | hasherezade / <https://github.com/hasherezade/pe-bear> |
+| **PE-bear** | GPL-2.0 | hasherezade / <https://github.com/hasherezade/pe-bear> |
 | **CFF Explorer** | Grátis (NTCore) | <https://ntcore.com/?page_id=388> |
 | **pestudio** | `[FREEMIUM]` | <https://www.winitor.com> |
 | **PDB Downloader** | MIT | <https://github.com/rajkumar-rangaraj/PDB-Downloader> |
@@ -108,13 +108,13 @@ deles **não** é publicado aqui — apenas referenciado, com crédito:
 |---|---|---|
 | **Frida (core)** | `wxWindows`/LGPL-like | <https://frida.re> · <https://github.com/frida/frida> |
 | **Frida (bindings Python/Node)** | MIT | <https://github.com/frida/frida-python> |
-| **objection** | MIT | SensePost / <https://github.com/sensepost/objection> |
+| **objection** | GPL-3.0 | SensePost / <https://github.com/sensepost/objection> |
 | **DynamoRIO** | BSD-3 | <https://github.com/DynamoRIO/dynamorio> |
 | **Dr. Memory** | LGPL-2.1 | <https://github.com/DynamoRIO/drmemory> |
 | **TinyInst** | Apache-2.0 | Google Project Zero / <https://github.com/googleprojectzero/TinyInst> |
 | **Unicorn** | GPL-2.0 | <https://github.com/unicorn-engine/unicorn> |
 | **Qiling** | GPL-2.0 | <https://github.com/qilingframework/qiling> |
-| **Speakeasy** | Apache-2.0 | Mandiant / <https://github.com/mandiant/speakeasy> |
+| **Speakeasy** | MIT | Mandiant / <https://github.com/mandiant/speakeasy> |
 | **GDB** | GPL-3.0 | GNU Project / <https://sourceware.org/gdb> |
 | **gef** | MIT | <https://github.com/hugsy/gef> |
 | **pwndbg** | MIT | <https://github.com/pwndbg/pwndbg> |
@@ -137,11 +137,11 @@ deles **não** é publicado aqui — apenas referenciado, com crédito:
 | **UPX** | GPL-2.0 | <https://github.com/upx/upx> |
 | **Scylla** | GPL-3.0 | <https://github.com/NtQuery/Scylla> |
 | **ScyllaHide** | GPL-3.0 | x64dbg team / <https://github.com/x64dbg/ScyllaHide> |
-| **TitanHide** | GPL-3.0 | mrexodia / <https://github.com/mrexodia/TitanHide> |
-| **al-khaser** | GPL-3.0 | <https://github.com/LordNoteworthy/al-khaser> |
+| **TitanHide** | MIT | mrexodia / <https://github.com/mrexodia/TitanHide> |
+| **al-khaser** | GPL-2.0 | <https://github.com/LordNoteworthy/al-khaser> |
 | **pafish** | GPL-3.0 | <https://github.com/a0rtega/pafish> |
 | **VBoxHardenedLoader** | GPL-3.0 | hfiref0x / <https://github.com/hfiref0x/VBoxHardenedLoader> |
-| **D-810** | MIT | joydo / <https://github.com/joydo/d810> |
+| **D-810** | AGPL-3.0 | joydo / <https://github.com/joydo/d810> |
 | **HexRaysDeob** | MIT | Rolf Rolles / <https://github.com/RolfRolles/HexRaysDeob> |
 | **Hikari** | BSD-3 | <https://github.com/HikariObfuscator/Hikari> |
 | **OLLVM** (obfuscator-llvm) | NCSA | <https://github.com/obfuscator-llvm/obfuscator> |
@@ -159,7 +159,7 @@ deles **não** é publicado aqui — apenas referenciado, com crédito:
 | Projeto | Licença | Autor / Upstream |
 |---|---|---|
 | **de4dot** (original) | GPL-3.0 | <https://github.com/de4dot/de4dot> |
-| **de4dot-cex** | MIT | ViRb3 / <https://github.com/ViRb3/de4dot-cex> |
+| **de4dot-cex** | GPL-3.0 | ViRb3 / <https://github.com/ViRb3/de4dot-cex> |
 | **dnlib** | MIT | 0xd4d / <https://github.com/0xd4d/dnlib> |
 | **Mono.Cecil** | MIT | Jb Evain / <https://github.com/jbevain/cecil> |
 | **ConfuserEx** | MIT | yck1509 / <https://github.com/yck1509/ConfuserEx> |

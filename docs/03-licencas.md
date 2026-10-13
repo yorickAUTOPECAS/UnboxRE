@@ -40,7 +40,7 @@ exige atribuição).
 | REA (`rea-agents`) | MIT | sim |
 | x64dbg-MCP Server | MIT | sim |
 | LIEF | Apache-2.0 | sim, com atribuição |
-| Capstone / Keystone | BSD-3 | sim |
+| Capstone | BSD-3 | sim |
 | YARA | BSD-3 | sim |
 | YARA-X | BSD-3-Clause | sim |
 | capa (Mandiant FLARE) | Apache-2.0 | sim, com atribuição |
@@ -51,8 +51,9 @@ exige atribuição).
 | VTIL | BSD-3 | sim |
 | RetDec | MIT | sim |
 | dnlib | MIT | sim |
-| de4dot-cex | MIT | sim |
 | ILSpy | MIT | sim |
+| TitanHide | MIT | sim |
+| Speakeasy | MIT | sim |
 | apktool | Apache-2.0 | sim |
 | jadx | Apache-2.0 | sim |
 | wabt | Apache-2.0 | sim |
@@ -69,7 +70,6 @@ exige atribuição).
 | ImHex | GPL-2.0 | **não** |
 | Frida (core) | `wxWindows`/LGPL-like | sim, com termos (biblioteca) |
 | Frida (bindings Python/Node) | MIT | sim |
-| objection | MIT | sim |
 | Redress, GoReSym | MIT | sim |
 
 ### 2.2 Copyleft — usar sim, redistribuir com cuidado
@@ -86,15 +86,28 @@ exige atribuição).
 | Unicorn | GPL-2.0 | sim (lib) | não; cuidado com *linkar* |
 | Scapy | GPL-2.0 | sim | não |
 | boofuzz | GPL-2.0 | sim | não |
-| ScyllaHide / TitanHide | GPL-3.0 | sim | não |
-| D-810 / NETReactorSlayer | MIT / GPL-3.0 | sim | ver licença individual |
-| de4dot | GPL-3.0 (versão antiga) | sim | não; use `de4dot-cex` (MIT) |
+| ScyllaHide | GPL-3.0 | sim | não |
+| Keystone | GPL-2.0 | sim | não |
+| al-khaser | GPL-2.0 | sim | não |
+| PE-bear | GPL-2.0 | sim | não |
+| objection | GPL-3.0 | sim | não |
+| D-810 | AGPL-3.0 | sim | não |
+| NETReactorSlayer | GPL-3.0 | sim | não |
+| de4dot | GPL-3.0 (versão antiga) | sim | não; use `de4dot-cex` (GPL-3.0, mantido) |
 | dnSpyEx | GPL-3.0 | sim | não |
 | MobSF | GPL-3.0 | sim | não |
 | AFL++ | AGPL-3.0 | sim | não no repo MIT |
 | Diaphora | AGPL-3.0 | sim | não |
 | Fluxzy (Core) | GPL-3.0 (dupla: GPL-3.0 ou comercial) | sim | não no repo MIT |
 | Moneta | GPL-3.0 | sim (binário do upstream) | não no repo MIT |
+
+> **Auditoria de 2026-10-13 (rodada 2).** Lendo o `LICENSE`/`COPYING` de cada upstream
+> e cruzando com a detecção do GitHub, **oito linhas estavam erradas** e foram
+> corrigidas: Keystone (BSD-3 → **GPL-2.0**), de4dot-cex (MIT → **GPL-3.0**),
+> Speakeasy (Apache-2.0 → **MIT**), TitanHide (GPL-3.0 → **MIT**), al-khaser
+> (GPL-3.0 → **GPL-2.0**), PE-bear (MIT → **GPL-2.0**), D-810 (MIT → **AGPL-3.0**) e
+> objection (MIT → **GPL-3.0**). O CI (`verify-licenses.mjs`) agora reverifica tudo
+> isso a cada push — inclusive as 28 ferramentas deste lote Windows.
 
 > **Regra do toolkit:** o repositório publica **apenas o seu código (MIT) e a sua
 > documentação**. Ferramentas GPL são *instaladas localmente* pelo bootstrap, nunca
