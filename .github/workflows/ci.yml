@@ -90,6 +90,17 @@ jobs:
           sudo apt-get install -y -qq shellcheck
           shellcheck -S warning scripts/health-check.sh scripts/bootstrap-wsl.sh
 
+      - name: health-check.sh --json produz JSON válido e stdout limpo
+        # O uso documentado é `--json > reports/health.json`, então o stdout não
+        # pode trazer texto humano junto ao objeto JSON. Sem os binários de
+        # terceiros o relatório tem FAILs e o script sai 1 — esperado aqui; o que
+        # este passo prende é o stdout ser SÓ o JSON.
+        run: |
+          set -euo pipefail
+          bash scripts/health-check.sh --json > /tmp/health.json || true
+          test -s /tmp/health.json || { echo "::error::health-check.sh --json não produziu saída"; exit 1; }
+          python3 -c "import json; d=json.load(open('/tmp/health.json', encoding='utf-8')); print('health.json válido:', d['summary'])"
+
   secrets:
     name: Scan de segredos e binários
     runs-on: ubuntu-latest
@@ -112,9 +123,12 @@ jobs:
           echo "Nenhum binário rastreado. OK."
 
       - name: Confirmar que work/ e segredos não estão rastreados
+        # work/ é área de amostras e não vai para o Git — exceto o sentinel
+        # work/.gitkeep, que o .gitignore libera de propósito para manter o
+        # diretório no clone. Mesma regra do scan-secrets.ps1.
         run: |
           set -euo pipefail
-          bad=$(git ls-files | grep -E '^(work/|config/env/unboxre\.env$|x64dbg/mcp_config\.json$)' || true)
+          bad=$(git ls-files | grep -E '^(work/|config/env/unboxre\.env$|x64dbg/mcp_config\.json$)' | grep -vE '^work/\.gitkeep$' || true)
           if [[ -n "$bad" ]]; then
             echo "::error::arquivos que não devem ser publicados:"; echo "$bad"; exit 1
           fi

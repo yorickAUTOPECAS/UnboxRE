@@ -9,7 +9,8 @@
 #
 # Uso (de dentro do WSL):
 #   bash scripts/bootstrap-wsl.sh                 # dry-run (mostra o plano)
-#   bash scripts/bootstrap-wsl.sh --apply         # instala de fato
+#   bash scripts/bootstrap-wsl.sh --apply         # instala de fato (pede confirmação)
+#   bash scripts/bootstrap-wsl.sh --apply --yes   # instala sem pedir confirmação
 #   bash scripts/bootstrap-wsl.sh --apply --profile static
 #
 # Perfis: core | static | dynamic | mobile | firmware | net | all
@@ -32,7 +33,9 @@ while [[ $# -gt 0 ]]; do
     --yes|-y)     ASSUME_YES=1; shift ;;
     --profile|-p) PROFILE="${2:-core}"; shift 2 ;;
     --help|-h)
-      sed -n '2,25p' "$0"; exit 0 ;;
+      # Imprime o cabeçalho inteiro (só as linhas de comentário do topo), sem
+      # depender de quantas linhas ele ocupa hoje.
+      awk 'NR > 1 && /^#/ { print; next } NR > 1 { exit }' "$0"; exit 0 ;;
     *) echo "argumento desconhecido: $1" >&2; exit 2 ;;
   esac
 done
@@ -152,6 +155,17 @@ else
   printf '  modo: %sAPPLY%s — instalando; log em %s\n' "$C_OK" "$C_RST" "$LOG"
 fi
 
+# Instalar pacotes altera o sistema do WSL, então confirmamos antes — exceto com
+# --yes ou quando não há terminal (CI, pipes, `wsl -- bash -c`), para não travar.
+if [[ $APPLY -eq 1 && $ASSUME_YES -eq 0 && -t 0 ]]; then
+  printf '  Isto vai instalar pacotes no WSL (sudo). Continuar? [s/N] '
+  read -r resposta
+  case "$resposta" in
+    s|S|y|Y|sim|Sim|SIM) ;;
+    *) printf '  abortado; nada foi alterado.\n'; exit 0 ;;
+  esac
+fi
+
 # ─── 0. Base ─────────────────────────────────────────────────────────────────
 section "0. Base do sistema"
 apt_install build-essential "compilador C/C++ para builds nativos"
@@ -204,6 +218,20 @@ if [[ "$PROFILE" == "dynamic" || "$PROFILE" == "all" ]]; then
     else
       info "git clone pwndbg → $PWNDBG_DIR + setup.sh"
     fi
+  fi
+  # gef: alternativa leve ao pwndbg. Clonamos em GEF_DIR sem mexer no ~/.gdbinit
+  # (o pwndbg já registrou o hook dele), então o gef fica disponível sob demanda:
+  #   gdb -q -ex "source $GEF_DIR/gef.py" ./alvo
+  if [[ -f "$GEF_DIR/gef.py" ]]; then
+    ok "gef presente em $GEF_DIR — ative com: gdb -q -ex \"source $GEF_DIR/gef.py\" ./alvo"
+  elif [[ $APPLY -eq 1 ]]; then
+    if git clone --depth 1 https://github.com/hugsy/gef "$GEF_DIR" >>"$LOG" 2>&1; then
+      ok "gef instalado em $GEF_DIR"
+    else
+      warn "gef: clone falhou (veja $LOG)"
+    fi
+  else
+    info "git clone gef → $GEF_DIR (uso sob demanda, sem conflitar com o pwndbg)"
   fi
   pip_user_install "pwntools" "pwn" "exploit dev e scripts de análise"
   pip_user_install "frida-tools" "frida" "instrumentação DBI no Linux"

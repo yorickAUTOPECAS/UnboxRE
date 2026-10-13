@@ -16,7 +16,7 @@ não quebra nada, e nada é instalado/compilado/copiado sem uma flag explícita
 | `health-check.ps1` | Windows (PS 5.1/7) | diagnóstico completo | só com `-Fix-Paths` |
 | `health-check.sh` | Git Bash / WSL | versão POSIX do diagnóstico | não |
 | `bootstrap-windows.ps1` | Windows | instala ferramentas por perfil (winget/choco/pip/npm) | com `-Apply` |
-| `bootstrap-wsl.sh` | WSL (Ubuntu) | instala o lado Linux (gdb, angr, pwndbg, unblob…) | com `--apply` |
+| `bootstrap-wsl.sh` | WSL (Ubuntu) | instala o lado Linux (gdb, angr, pwndbg, gef, unblob…) | com `--apply` (pede confirmação; `--yes` pula) |
 | `re-build.ps1` | Windows | compila x64dbg-MCP (Zig) e REA (npm), instala plugins | com `-Apply` |
 | `setup-ghidra-extensions.ps1` | Windows | instala extensões `.zip` no Ghidra | com `-Apply` |
 | `new-case.ps1` | Windows | cria `work/<slug>/` com intake e hash | sim |
@@ -40,7 +40,7 @@ não quebra nada, e nada é instalado/compilado/copiado sem uma flag explícita
 .\scripts\re-build.ps1 -Apply
 
 # 4. (Opcional) provisione o lado Linux
-wsl -d Ubuntu -- bash -lc "cd $(wslpath -u 'C:\Users\Admin\Desktop\UnboxRE') && bash scripts/bootstrap-wsl.sh --apply"
+wsl -d Ubuntu -- bash -lc "cd $(wslpath -u 'C:\Users\Admin\Desktop\UnboxRE') && bash scripts/bootstrap-wsl.sh --apply --yes"
 
 # 5. Gere as configs de MCP para o seu cliente
 node .\scripts\gen-mcp-config.mjs --client claude-desktop --write

@@ -204,13 +204,19 @@ $ curl -x http://127.0.0.1:8080 https://example.com -k   # deve passar pelo prox
 ## 6. Fase 6 — `wsl`: laboratório Linux
 
 ```powershell
-PS> .\scripts\bootstrap-wsl.sh          # executa dentro do WSL
+PS> .\scripts\bootstrap-wsl.sh          # executa dentro do WSL (dry-run, não instala)
 # ou, do zero:
 PS> wsl --install -d Ubuntu-24.04
+
+# instalar de fato — pede uma confirmação antes de mexer no sistema:
+PS> wsl -d Ubuntu -- bash -lc "cd $(wslpath -u 'C:\Users\Admin\Desktop\UnboxRE') && bash scripts/bootstrap-wsl.sh --apply"
 ```
 
 O script `bootstrap-wsl.sh` provisiona: binutils, pyelftools, patchelf, gdb+gef,
 pwndbg, AFL++, angr, Qiling, qemu-user, sasquatch, firmware-mod-kit.
+
+`--yes` (ou `-y`) pula a confirmação — útil em provisionamento automatizado.
+Sem terminal interativo (pipe, `wsl -- bash -c`) a confirmação é dispensada.
 
 **Verificação:**
 

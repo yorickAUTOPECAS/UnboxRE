@@ -53,6 +53,11 @@ $SkipDirs = @('\.git\', '\node_modules\', '\dist\', '\build\', '\.turbo\', '\ghi
               '\zig-out\', '\.zig-cache\')
 if (-not $IncludeSamples) { $SkipDirs += '\work\' }
 
+# Sentinels que o .gitignore libera de propósito só para manter o diretório no
+# clone (work/.gitkeep, reports/.gitkeep). Não são amostras: entram no relatório
+# como OK, e qualquer outro arquivo em work/ continua sendo FAIL.
+$SentinelFiles = @('.gitkeep', '.gitignore')
+
 # Arquivos considerados binários (por extensão) — não varremos conteúdo.
 $BinaryExt = @('.exe','.dll','.so','.dylib','.bin','.o','.a','.lib','.pdb','.dp32','.dp64',
                '.png','.jpg','.jpeg','.gif','.ico','.pdf','.zip','.gz','.7z','.rar','.tar',
@@ -162,9 +167,15 @@ if (Test-PathExists (Join-Path $root '.git')) {
                 })
             }
             if ($f -like 'work/*') {
-                $null = $topology.Add([pscustomobject]@{
-                    File = $f; Severity = 'FAIL'; Detail = 'arquivo de work/ rastreado — amostras não vão para o Git'
-                })
+                if ($SentinelFiles -contains [System.IO.Path]::GetFileName($f)) {
+                    $null = $topology.Add([pscustomobject]@{
+                        File = $f; Severity = 'OK'; Detail = 'sentinel de diretório — mantém work/ no clone, não é amostra'
+                    })
+                } else {
+                    $null = $topology.Add([pscustomobject]@{
+                        File = $f; Severity = 'FAIL'; Detail = 'arquivo de work/ rastreado — amostras não vão para o Git'
+                    })
+                }
             }
         }
     } catch { }

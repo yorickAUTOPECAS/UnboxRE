@@ -16,20 +16,23 @@ JSON=0
 
 if [[ -t 1 && $JSON -eq 0 ]]; then
   C_OK=$'\033[32m'; C_WARN=$'\033[33m'; C_FAIL=$'\033[31m'
-  C_INFO=$'\033[36m'; C_DIM=$'\033[90m'; C_RST=$'\033[0m'
+  C_INFO=$'\033[36m'; C_RST=$'\033[0m'
 else
-  C_OK=; C_WARN=; C_FAIL=; C_INFO=; C_DIM=; C_RST=
+  C_OK=; C_WARN=; C_FAIL=; C_INFO=; C_RST=
 fi
 
 counts=(0 0 0)  # ok warn fail
 json_items=()
 
-say() { printf '  [%-4s] %s\n' "$1" "$2"; }
+# Em --json o stdout tem que conter SÓ o objeto JSON (o health-check.ps1 faz o
+# mesmo, acumulando os resultados), então os printers ficam mudos nesse modo; as
+# contagens e os itens continuam sendo acumulados normalmente.
+say() { [[ $JSON -eq 1 ]] && return 0; printf '  [%-4s] %s\n' "$1" "$2"; }
 ok()   { counts[0]=$((counts[0]+1)); say "OK"   "${C_OK}$1${C_RST}";     json_items+=("{\"level\":\"OK\",\"message\":\"${1//\"/\\\"}\"}"); }
 warn() { counts[1]=$((counts[1]+1)); say "WARN" "${C_WARN}$1${C_RST}";   json_items+=("{\"level\":\"WARN\",\"message\":\"${1//\"/\\\"}\"}"); }
 fail() { counts[2]=$((counts[2]+1)); say "FAIL" "${C_FAIL}$1${C_RST}";   json_items+=("{\"level\":\"FAIL\",\"message\":\"${1//\"/\\\"}\"}"); }
 info() { say "INFO" "${C_INFO}$1${C_RST}"; }
-section() { printf '\n%s\n' "${C_INFO}── $1 ${C_RST}"; }
+section() { [[ $JSON -eq 1 ]] && return 0; printf '\n%s\n' "${C_INFO}── $1 ${C_RST}"; }
 
 have() { command -v "$1" >/dev/null 2>&1; }
 
@@ -109,8 +112,9 @@ if [[ $JSON -eq 1 ]]; then
   printf '{"root":"%s","summary":{"ok":%d,"warn":%d,"fail":%d},"items":[%s]}\n' \
     "$REPO_ROOT" "${counts[0]}" "${counts[1]}" "${counts[2]}" "$(IFS=,; echo "${json_items[*]}")"
 else
-  printf '\n%s\n' "$(printf '─%.0s' {1..68})"
-  col=$C_OK; [[ ${counts[1]} -gt 0 ]] && col=$C_WARN; [[ ${counts[2]} -gt 0 ]] && col=$C_RST$C_FAIL
+  # A cor do bloco de resumo segue a pior severidade encontrada.
+  col=$C_OK; [[ ${counts[1]} -gt 0 ]] && col=$C_WARN; [[ ${counts[2]} -gt 0 ]] && col=$C_FAIL
+  printf '\n%s%s%s\n' "$col" "$(printf '─%.0s' {1..68})" "$C_RST"
   printf '  OK: %s%d%s   WARN: %s%d%s   FAIL: %s%d%s\n' \
     "$C_OK" "${counts[0]}" "$C_RST" "$C_WARN" "${counts[1]}" "$C_RST" "$C_FAIL" "${counts[2]}" "$C_RST"
   printf '\n'
