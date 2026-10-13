@@ -11,12 +11,16 @@ com foco em **operação por LLM/agentes** através de CLI e MCP.
 
 ## 1. Mapa rápido do stack
 
-O ambiente roda em **dois terrenos**, e saber qual usar resolve 80% das dúvidas:
+**Escopo atual: Windows 10/11.** O toolkit é validado num host Windows, e é onde o
+caminho crítico (PE/PE+, .NET/IL, kernel, GUI Ghidra/x64dbg, servidores MCP) foi
+testado de ponta a ponta. Linux/WSL e macOS **não estão em escopo por ora** — seguem
+no roadmap. Os ganchos que existem para eles (`bootstrap-wsl.sh`, o ramo Linux de
+`fetch-tools.sh`) são cortesia, não promessa de suporte.
 
-| Terreno | O que cobre | Por que |
+| Terreno | O que cobre | Estado |
 |---|---|---|
-| **Host Windows** (`C:\Users\Admin\Desktop\UnboxRE`) | PE/PE+, .NET/IL, drivers, kernel Windows, processos vivos, GUI (Ghidra/x64dbg), MCP servers | A maioria dos alvos comerciais de desktop é Windows; debug usermode+kernel e DBI maduros só existem aqui |
-| **WSL2 Ubuntu 24.04** (a instalar — ver bootstrap) | ELF, Android/APK, firmware/IoT, fuzzing (AFL++), angr/Qiling, símbolos DWARF, toolchain nativa | Metade das ferramentas de RE é Linux-only, e o ecossistema de build/emulação é muito melhor |
+| **Host Windows** (`C:\Users\Admin\Desktop\UnboxRE`) | PE/PE+, .NET/IL, drivers, kernel Windows, processos vivos, GUI (Ghidra/x64dbg), MCP servers | **suportado e testado** — o caminho crítico |
+| **WSL2 Ubuntu / Linux / macOS** | ELF, Android/APK, firmware/IoT, fuzzing (AFL++), angr/Qiling, símbolos DWARF | fora de escopo por ora (roadmap) |
 
 ```
                     ┌──────────────────── LLM / Agente ────────────────────┐
@@ -99,7 +103,7 @@ como primeiro passo, então `-Profile core` já cobre os passos 1 e 2.
 | `mobile`, `firmware` | Android (jadx/apktool) e firmware (binwalk/unblob) — alias histórico: `formats` | ~20 min |
 | `net` | Wireshark/tshark, mitmproxy, Fluxzy — alias histórico: `network` | ~10 min |
 | `plugins` | Instala os plugins compilados no x64dbg (delega a `re-build.ps1`) | ~5 min |
-| `wsl` | Provisiona o laboratório Linux (delega a `bootstrap-wsl.sh`; rode dentro do WSL) | ~25 min |
+| `wsl` | Provisiona o laboratório Linux (delega a `bootstrap-wsl.sh`; rode dentro do WSL) — **fora de escopo por ora** | ~25 min |
 | `all` | Tudo acima, em ordem — alias histórico: `full` | ~1 h |
 
 ---
@@ -135,6 +139,8 @@ Automação:
 | [scripts/gen-mcp-config.mjs](scripts/gen-mcp-config.mjs) | Gera/valida os blocos `mcpServers` para cada cliente de IA |
 | [scripts/identify-protections.mjs](scripts/identify-protections.mjs) | Triagem embutida de packer/protetor (UPX, VMProtect, Themida, ASPack…), sem dependência externa |
 | [scripts/smoke-mcp.mjs](scripts/smoke-mcp.mjs) | Prova que a ponte MCP do REA sobe e responde (handshake `initialize` + `tools/list`) |
+| [scripts/start-x64dbg.ps1](scripts/start-x64dbg.ps1) | Sobe o x64dbg minimizado para o plugin MCP ficar vivo, espera a porta e (com `-Check`) roda a chamada MCP real |
+| [scripts/mcp-x64dbg-smoke.mjs](scripts/mcp-x64dbg-smoke.mjs) | Prova que o MCP do x64dbg responde **ao vivo** (initialize → tools/list → uma tool real) |
 | [scripts/check-consistency.mjs](scripts/check-consistency.mjs) | Teste de regressão offline: doc ↔ código ↔ licenças divergindo, comando/cliente/perfil inexistente |
 | [scripts/verify-licenses.mjs](scripts/verify-licenses.mjs) | Confere cada licença declarada contra a fonte primária (rede; job de CI) |
 | [scripts/new-case.ps1](scripts/new-case.ps1) | Cria o esqueleto de um caso em `work/<alvo>/` com procedência e hash |

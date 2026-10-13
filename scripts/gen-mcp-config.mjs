@@ -21,14 +21,15 @@
  *
  * Segurança
  * ---------
- * O token do x64dbg é lido de x64dbg/mcp_config.json. Ele é um segredo LOCAL de
+ * O token do x64dbg é lido do mcp_config.json que o plugin grava ao lado do
+ * x64dbg.exe (x64dbg/release/x64| x32/). Ele é um segredo LOCAL de
  * loopback: escrever no config do cliente é o uso pretendido, mas os arquivos
  * gerados ficam em config/mcp/generated/ (ignorado pelo Git) e o script avisa
  * sempre que o token for impresso.
  */
 
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
 
@@ -107,18 +108,25 @@ function findX64dbgToken() {
   if (process.env.X64DBG_TOKEN) {
     return { token: process.env.X64DBG_TOKEN, source: "variável de ambiente X64DBG_TOKEN" };
   }
-  const cfg = join(ROOT, "x64dbg", "mcp_config.json");
-  if (!existsSync(cfg)) {
-    return { token: null, source: "x64dbg/mcp_config.json ausente (abra o x64dbg uma vez)" };
+  // Ao lado do x64dbg.exe (onde o plugin realmente grava); a raiz é legado.
+  const candidates = [
+    join(ROOT, "x64dbg", "release", "x64", "mcp_config.json"),
+    join(ROOT, "x64dbg", "release", "x32", "mcp_config.json"),
+    join(ROOT, "x64dbg", "mcp_config.json"),
+  ];
+  const cfg = candidates.find((c) => existsSync(c));
+  if (!cfg) {
+    return { token: null, source: "x64dbg/release/{x64,x32}/mcp_config.json ausente (rode .\\scripts\\start-x64dbg.ps1 uma vez)" };
   }
+  const shown = relative(ROOT, cfg).split(sep).join("/");
   try {
     const j = JSON.parse(readFileSync(cfg, "utf8"));
     const t = j.AuthToken ?? j.authToken ?? j.token ?? null;
     return t
-      ? { token: t, source: "x64dbg/mcp_config.json" }
-      : { token: null, source: "x64dbg/mcp_config.json sem AuthToken" };
+      ? { token: t, source: shown }
+      : { token: null, source: `${shown} sem AuthToken` };
   } catch (e) {
-    return { token: null, source: `x64dbg/mcp_config.json ilegível: ${e.message}` };
+    return { token: null, source: `${shown} ilegível: ${e.message}` };
   }
 }
 

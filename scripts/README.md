@@ -4,8 +4,9 @@ Todos os scripts são **idempotentes** e **dry-run por padrão**: rodar duas vez
 não quebra nada, e nada é instalado/compilado/copiado sem uma flag explícita
 (`-Apply` / `--apply`).
 
-> Caminhos abaixo assumem a raiz do toolkit. No Windows use PowerShell; no WSL/Git
-> Bash use `bash`.
+> Caminhos abaixo assumem a raiz do toolkit. Use PowerShell no Windows. O escopo
+> atual é **Windows 10/11**: o caminho crítico é validado aqui. O ramo `bash` existe
+> para Git Bash e como roadmap — Linux/WSL **não** é suportado/testado nesta rodada.
 
 ---
 
@@ -18,7 +19,7 @@ não quebra nada, e nada é instalado/compilado/copiado sem uma flag explícita
 | `health-check.ps1` | Windows (PS 5.1/7) | diagnóstico completo; `-Fix-Paths` cria diretórios e repara `GHIDRA_INSTALL_DIR`/`JAVA_HOME` | só com `-Fix-Paths` |
 | `health-check.sh` | Git Bash / WSL | versão POSIX do diagnóstico | não |
 | `bootstrap-windows.ps1` | Windows | instala por perfil (winget/choco/pip/npm); o perfil `core` roda o `fetch` antes | com `-Apply` |
-| `bootstrap-wsl.sh` | WSL (Ubuntu) | instala o lado Linux (gdb, angr, pwndbg, gef, unblob…) | com `--apply` (pede confirmação; `--yes` pula) |
+| `bootstrap-wsl.sh` | WSL (Ubuntu) | instala o lado Linux (gdb, angr, pwndbg, gef, unblob…) — **fora de escopo por ora** (roadmap) | com `--apply` (pede confirmação; `--yes` pula) |
 | `re-build.ps1` | Windows | compila x64dbg-MCP (Zig) e REA (npm) da FONTE — opcional | com `-Apply` |
 | `setup-ghidra-extensions.ps1` | Windows | instala extensões `.zip` no Ghidra | com `-Apply` |
 | `new-case.ps1` | Windows | cria `work/<slug>/` com intake e hash | sim |
@@ -28,6 +29,8 @@ não quebra nada, e nada é instalado/compilado/copiado sem uma flag explícita
 | `check-consistency.mjs` | Node | regressão offline: doc ↔ código ↔ licenças divergindo | não |
 | `verify-licenses.mjs` | Node (rede) | confere cada licença contra a fonte primária | não |
 | `smoke-mcp.mjs` | Node | handshake MCP real (initialize + tools/list) contra o REA | não |
+| `start-x64dbg.ps1` | Windows | sobe o x64dbg minimizado para o plugin MCP ficar vivo; espera a porta e, com `-Check`, roda a chamada MCP real | não (com `-Stop` encerra o que subiu) |
+| `mcp-x64dbg-smoke.mjs` | Node | prova que o MCP do x64dbg responde ao vivo (initialize → tools/list → uma tool real) | não |
 | `lib/common.ps1` | — | helpers compartilhados (dot-source) | — |
 
 ---
@@ -49,8 +52,12 @@ não quebra nada, e nada é instalado/compilado/copiado sem uma flag explícita
 # 4. (Opcional) compile os componentes da FONTE — o fetch já traz releases prontos
 .\scripts\re-build.ps1 -Apply
 
-# 5. (Opcional) provisione o lado Linux
+# 5. (Opcional) provisione o lado Linux — FORA DE ESCOPO POR ORA (roadmap;
+#    o caminho suportado e testado hoje é só o Windows)
 wsl -d Ubuntu -- bash -lc "cd $(wslpath -u 'C:\Users\Admin\Desktop\UnboxRE') && bash scripts/bootstrap-wsl.sh --apply --yes"
+
+# 6. (Opcional) ponha o x64dbg no ar e prove o MCP ao vivo
+.\scripts\start-x64dbg.ps1 -Check
 
 # 6. Gere as configs de MCP para o seu cliente
 node .\scripts\gen-mcp-config.mjs --client claude-desktop --apply

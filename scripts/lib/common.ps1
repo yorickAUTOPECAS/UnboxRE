@@ -357,6 +357,24 @@ function Get-ToolManifest {
     return (Get-Field $doc 'tools')
 }
 
+function Resolve-X64dbgMcpConfig {
+    <#
+        Caminho do mcp_config.json do plugin x64dbg-MCP, ou $null se ainda não existe.
+
+        O plugin grava o arquivo AO LADO do x64dbg.exe — release\x64\ para o
+        debugger 64-bit, release\x32\ para o 32-bit — e NÃO na raiz x64dbg/.
+        Descoberto rodando o plugin de verdade (auditoria 2026-10-13): health-check
+        e gen-mcp-config procuravam na raiz e nunca encontravam o token. A raiz
+        fica como fallback para layouts antigos.
+    #>
+    param([string]$Root = (Get-RepoRoot))
+    foreach ($rel in @('x64dbg\release\x64\mcp_config.json', 'x64dbg\release\x32\mcp_config.json', 'x64dbg\mcp_config.json')) {
+        $p = Join-Path $Root $rel
+        if (Test-PathExists $p) { return $p }
+    }
+    return $null
+}
+
 function Test-ToolMarker {
     <#
         True quando o glob do campo install.marker do manifest casa algo em disco.

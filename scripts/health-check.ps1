@@ -317,15 +317,15 @@ function Test-CoreTools {
         Add-Result 'mcp:plugin' 'FAIL' 'plugin MCP não instalado no x64dbg' 'rode: powershell -File .\scripts\fetch-tools.ps1 -Tool x64dbg-mcp -Apply'
     }
 
-    # x64dbg mcp_config.json (token gerado no 1º run)
-    $cfg = Join-Path $root 'x64dbg\mcp_config.json'
-    if (Test-PathExists $cfg) {
+    # x64dbg mcp_config.json (token gerado no 1º run, ao lado do x64dbg.exe)
+    $cfg = Resolve-X64dbgMcpConfig
+    if ($cfg) {
         $j = Get-JsonFileSafe -Path $cfg
         $port = '?'
         if ($j -and $j.PSObject.Properties.Name -contains 'port') { $port = $j.port }
-        Add-Result 'mcp:config' 'OK' "x64dbg/mcp_config.json presente (porta $port)"
+        Add-Result 'mcp:config' 'OK' "$((($cfg.Substring($root.Length + 1)) -replace '\\', '/')) presente (porta $port)"
     } else {
-        Add-Result 'mcp:config' 'WARN' 'token ainda não gerado' 'abra o x64dbg uma vez para o plugin gerar o token'
+        Add-Result 'mcp:config' 'WARN' 'token ainda não gerado' 'rode scripts/start-x64dbg.ps1 uma vez para o plugin gerar o token'
     }
 
     # REA
@@ -453,7 +453,8 @@ function Test-McpRuntime {
 
     # Autenticação: se a porta está aberta, valide o token de fato
     if ($port9094) {
-        $cfg = Get-JsonFileSafe -Path (Join-Path $root 'x64dbg\mcp_config.json')
+        $cfgPath = Resolve-X64dbgMcpConfig
+        $cfg = if ($cfgPath) { Get-JsonFileSafe -Path $cfgPath } else { $null }
         $token = $null
         if ($cfg -and ($cfg.PSObject.Properties.Name -contains 'authToken')) { $token = $cfg.authToken }
         if (-not $token) {
@@ -470,7 +471,7 @@ function Test-McpRuntime {
                     Add-Result 'mcp:auth' 'WARN' "status $($resp.StatusCode)" 'confira token e versão do plugin'
                 }
             } catch {
-                Add-Result 'mcp:auth' 'FAIL' "falha ao chamar tools/list: $($_.Exception.Message)" 'valide o token em x64dbg/mcp_config.json'
+                Add-Result 'mcp:auth' 'FAIL' "falha ao chamar tools/list: $($_.Exception.Message)" 'valide o token em x64dbg/release/x64/mcp_config.json'
             }
         }
     }
