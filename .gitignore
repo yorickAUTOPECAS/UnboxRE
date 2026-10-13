@@ -1,0 +1,118 @@
+# =============================================================================
+# UnboxRE — .gitignore
+# Regra: publicar apenas código e documentação próprios (MIT).
+# Nunca versionar binários de terceiros, amostras de alvos ou segredos.
+# =============================================================================
+
+# --- Instalações de ferramentas de terceiros (não redistribuir) -------------
+# Ancorados na RAIZ de propósito: um padrão solto como `tools/` casaria com
+# QUALQUER diretório de mesmo nome em qualquer nível — inclusive `docs/tools/`,
+# que é documentação própria e PRECISA ser versionada. Se algum dia entrar um
+# diretório de terceiros aninhado, ancore o caminho exato (ex.: `/foo/bar/`).
+/ghidra/
+/x64dbg/
+/rea-main/
+/x64dbg-mcp-server-main/
+/tools/
+/vendor/
+
+# --- Artefatos de build dos componentes locais ------------------------------
+dist/
+build/
+out/
+*.o
+*.obj
+*.pdb
+*.lib
+*.exp
+
+# --- Área de trabalho por alvo (amostras, dumps, captures) ------------------
+work/*
+!work/.gitkeep
+
+# --- Relatórios: markdown versionável, artefatos brutos não -----------------
+reports/*
+!reports/.gitkeep
+!reports/*.md
+reports/*.raw
+reports/*.json
+
+# --- Configs MCP geradas (contêm o token do x64dbg) -------------------------
+config/mcp/generated/
+
+# --- Segredos e tokens ------------------------------------------------------
+config/env/*.env
+!config/env/*.example
+mcp_config.json
+.mcp.local.json
+*.token
+*.secret
+*.pem
+*.key
+*.pfx
+
+# --- Amostras de binários / firmware (por extensão, em qualquer lugar) ------
+*.exe
+*.dll
+*.sys
+*.so
+*.dylib
+*.bin
+*.rom
+*.img
+*.apk
+*.dex
+*.jar
+*.class
+*.wasm
+*.pcap
+*.pcapng
+*.har
+*.pml
+*.dd64
+*.dd32
+*.run
+
+# --- Bancos de dados de projeto das ferramentas -----------------------------
+*.gpr
+*.rep
+*.idb
+*.i64
+*.til
+
+# --- Python -----------------------------------------------------------------
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.uv/
+uv.lock
+*.egg-info/
+
+# --- Node -------------------------------------------------------------------
+node_modules/
+.npm/
+*.tsbuildinfo
+.nx/
+.turbo/
+
+# --- Ferramentas do agente/IDE (estado local, não é do projeto) -------------
+.freebuff/
+
+# --- Editores / SO ----------------------------------------------------------
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+Thumbs.db
+desktop.ini
+$RECYCLE.BIN/
+
+# --- Logs e temporários -----------------------------------------------------
+*.log
+logs/
+tmp/
+temp/
+*.tmp
+.cache/

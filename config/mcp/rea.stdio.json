@@ -1,0 +1,24 @@
+{
+  "_comment": [
+    "UnboxRE — fragmento MCP para o REA (orquestrador por agente).",
+    "O REA fala stdio: o cliente sobe `node <abs>/rea-main/scripts/rea.mjs mcp`.",
+    "Use CAMINHO ABSOLUTO — clientes MCP não têm cwd garantido.",
+    "Se você publicou/instalou o pacote, a alternativa é npx:",
+    "    \"command\": \"npx\", \"args\": [\"-y\", \"rea-agents\", \"mcp\"]",
+    "A variável GHIDRA_INSTALL_DIR no bloco `env` é o que liga a integração Ghidra."
+  ],
+  "mcpServers": {
+    "rea": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "C:\\Users\\Admin\\Desktop\\UnboxRE\\rea-main\\scripts\\rea.mjs",
+        "mcp"
+      ],
+      "env": {
+        "GHIDRA_INSTALL_DIR": "C:\\Users\\Admin\\Desktop\\UnboxRE\\ghidra\\ghidra_12.1.4_PUBLIC",
+        "JAVA_HOME": "C:\\Program Files\\Java\\jdk-21.0.12"
+      }
+    }
+  }
+}

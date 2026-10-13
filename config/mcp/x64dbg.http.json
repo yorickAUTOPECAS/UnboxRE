@@ -1,0 +1,18 @@
+{
+  "_comment": [
+    "UnboxRE — fragmento MCP para o servidor x64dbg (HTTP streamable).",
+    "NÃO edite à mão: gere o arquivo concreto com",
+    "    node scripts/gen-mcp-config.mjs --client claude-desktop --apply",
+    "O token vem de x64dbg/mcp_config.json, que o plugin gera no primeiro run.",
+    "Porta 9094 = instância x64; 9095 = instância x32 (troque a URL abaixo)."
+  ],
+  "mcpServers": {
+    "x64dbg": {
+      "type": "http",
+      "url": "http://127.0.0.1:9094/",
+      "headers": {
+        "Authorization": "Bearer ${X64DBG_TOKEN}"
+      }
+    }
+  }
+}

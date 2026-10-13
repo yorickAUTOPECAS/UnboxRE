@@ -1,0 +1,17 @@
+{
+  "_comment": [
+    "UnboxRE — fragmento MCP para o servidor x64dbg (SSE, clientes legados).",
+    "Prefira HTTP: no SSE o plugin empurra eventos (breakpoint, exceção) sozinho;",
+    "no HTTP o agente precisa fazer polling com WaitForEvent.",
+    "Gere o arquivo concreto com scripts/gen-mcp-config.mjs --transport sse"
+  ],
+  "mcpServers": {
+    "x64dbg": {
+      "type": "sse",
+      "url": "http://127.0.0.1:9094/sse",
+      "headers": {
+        "Authorization": "Bearer ${X64DBG_TOKEN}"
+      }
+    }
+  }
+}

@@ -1,0 +1,129 @@
+# =============================================================================
+# .github/workflows/ci.yml — validação do toolkit UnboxRE.
+#
+# Não instala ferramentas de RE (o CI não analisa binários): valida a integridade
+# do que é PUBLICADO — documentação obrigatória, templates válidos, scripts sem
+# erros de sintaxe e, o mais importante, ausência de segredos e binários.
+#
+# Por que isto existe: o repositório é público e MIT. Um token vazado ou uma
+# amostra de software comercial versionada por engano é irreversível. O CI fecha
+# essa porta a cada push.
+# =============================================================================
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Documentação e estrutura
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verificar arquivos obrigatórios
+        run: |
+          set -euo pipefail
+          required=(
+            README.md
+            LICENSE
+            THIRD_PARTY_NOTICES.md
+            .gitignore
+            docs/00-diagnostico.md
+            docs/01-arquitetura.md
+            docs/02-catalogo-ferramentas.md
+            docs/03-licencas.md
+            docs/04-instalacao.md
+            docs/05-mcp.md
+            docs/06-workflows.md
+            docs/07-operacao-por-ia.md
+            docs/08-higiene-e-seguranca.md
+            config/env/unboxre.env.example
+            docs/tools/README.md
+            scripts/health-check.sh
+            scripts/bootstrap-wsl.sh
+          )
+          missing=0
+          for f in "${required[@]}"; do
+            if [[ ! -f "$f" ]]; then echo "::error::arquivo obrigatório ausente: $f"; missing=1; fi
+          done
+          [[ $missing -eq 0 ]] && echo "Todos os arquivos obrigatórios presentes."
+
+      - name: Nenhum arquivo de docs/ engolido pelo .gitignore
+        # Um padrão não ancorado no .gitignore (ex.: `tools/`) casa com qualquer
+        # diretório de mesmo nome em qualquer nível — foi o que escondeu
+        # docs/tools/ na primeira tentativa de publicação. Este passo prende.
+        run: |
+          set -euo pipefail
+          ignored=$(git ls-files --others --ignored --exclude-standard --directory docs/ || true)
+          if [[ -n "$ignored" ]]; then
+            echo "::error::arquivos em docs/ estão ignorados pelo .gitignore:"
+            echo "$ignored"
+            echo "Ancore o padrão do .gitignore na raiz (ex.: /tools/ em vez de tools/)."
+            exit 1
+          fi
+          echo "Nenhum arquivo de docs/ ignorado. OK."
+
+      - name: Validar templates JSON do MCP
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          fail=0
+          for f in config/mcp/*.json; do
+            if ! python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$f"; then
+              echo "::error::JSON inválido: $f"; fail=1
+            else
+              echo "ok: $f"
+            fi
+          done
+          exit $fail
+
+      - name: Lint dos scripts shell (shellcheck)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq shellcheck
+          shellcheck -S warning scripts/health-check.sh scripts/bootstrap-wsl.sh
+
+  secrets:
+    name: Scan de segredos e binários
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rodar scan-secrets.ps1
+        shell: pwsh
+        run: |
+          ./scripts/scan-secrets.ps1 -Json | Tee-Object -FilePath secrets-report.json
+        continue-on-error: false
+
+      - name: Confirmar que nenhum binário está rastreado
+        run: |
+          set -euo pipefail
+          bad=$(git ls-files | grep -Ei '\.(exe|dll|so|dylib|bin|o|lib|pdb|dp32|dp64|apk|dex|class|jar|wasm)$' || true)
+          if [[ -n "$bad" ]]; then
+            echo "::error::binários rastreados no Git:"; echo "$bad"; exit 1
+          fi
+          echo "Nenhum binário rastreado. OK."
+
+      - name: Confirmar que work/ e segredos não estão rastreados
+        run: |
+          set -euo pipefail
+          bad=$(git ls-files | grep -E '^(work/|config/env/unboxre\.env$|x64dbg/mcp_config\.json$)' || true)
+          if [[ -n "$bad" ]]; then
+            echo "::error::arquivos que não devem ser publicados:"; echo "$bad"; exit 1
+          fi
+          echo "Nenhum arquivo sensível rastreado. OK."
+
+      - name: Upload do relatório de segredos
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: secrets-report
+          path: secrets-report.json
+          if-no-files-found: ignore
