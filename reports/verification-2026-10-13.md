@@ -185,3 +185,48 @@ node scripts/gen-mcp-config.mjs --list --json   # valid JSON, exit 0
 powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/health-check.ps1 -Json   # fail:0
 powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/fetch-tools.ps1          # dry-run plan
 ```
+
+## 7. Round 3 — the 0xC000007B mystery, the unpack pipeline, and a bigger license batch
+
+Full write-ups: [root-cause-0xc000007b.md](root-cause-0xc000007b.md) and
+[unpack-iat-upx-case.md](unpack-iat-upx-case.md). Summary of what was measured:
+
+- **The suggested VT-x hypothesis is refuted, with evidence.** This machine is an AMD
+  Ryzen 5 5500 with `VirtualizationFirmwareEnabled=True`, SLAT and VM-monitor extensions
+  all `True`; `systeminfo` reports every Hyper-V requirement as `Sim`. Independently, the
+  failure is a **loader-stage** one: x64dbg maps the image, loads `ntdll`, and the process
+  exits with `0xC000007B` **before the entry point** — proven by patching each sample's EP
+  to an infinite loop and to `int3` (controls hang/trap; the samples still exit
+  `0xC000007B`). A CPU feature cannot cause that.
+- **Root cause narrowed and reproduced.** Emptying `SizeOfRawData`/`PointerToRawData` of
+  `.rdata` or `.data` on the **working** `clean.exe` reproduces `0xC000007B` exactly;
+  emptying `.text`, `fothk`, `.pdata`, `.didat`, `.rsrc` or `.reloc` does not. Both DEMO
+  protectors strip exactly those original sections. Independently, clearing the BASERELOC
+  directory or the LOADCONFIG directory each produce the same status. Not the cause: imports
+  (removing the whole table changes nothing), any data directory, `DllCharacteristics`,
+  checksum, path, MOTW, Code Integrity/AppLocker (zero events during the run). The **exact
+  ntdll check** is still not identified — that needs loader snaps with Debugging Tools,
+  which is not installed; recorded in §7 of the report rather than papered over.
+- **New:** `scripts/diagnose-load.mjs` — "protected" and "will it load?" are different
+  questions; this answers the second, statically and by running the target. One of its first
+  findings was a **false positive** (data directories pointing into an emptied section are
+  normal for packers — zeroing them on UPX's own output did not make it load), so that check
+  is a `medium` signal, not a verdict.
+- **Unpack pipeline proven on a controlled case.** `upx -9 --force` → `upx -d` on a known
+  target: 50 DLLs / **315** import thunks restored (the packed stub has 54), a string the
+  packer compressed (`fothk`) is back, the restored binary **runs (exit 0)**, and Ghidra
+  headless reports `REPORT: Analysis succeeded` while resolving the restored imports. The
+  UPX-packed output itself does **not** load on this machine — same error family, reported in
+  the case write-up.
+- **License registry: 69 → 75 verified rows**, each confirmed against **both** the repo's own
+  raw `LICENSE` and GitHub's detection: XED, WinAFL, System Informer, Cutter, pefile, FLOSS.
+  Two labels that are easy to get wrong and are now pinned: System Informer is **MIT** (not the
+  GPL people assume from its Process Hacker history) and FLOSS is **Apache-2.0**.
+  `verify-licenses.mjs` → `[OK] 75`; `check-consistency.mjs` → `[OK] 187 verificações`.
+- **Agent onboarding added:** [AGENTS.md](../AGENTS.md) and [CLAUDE.md](../CLAUDE.md) at the
+  repo root — the non-negotiables, the repo map, the commands that matter, and the traps this
+  project already paid for (so a fresh clone needs no manual explanation).
+- **Not done / blocked:** memory dump + IAT repair with Scylla was **not** exercised end to end
+  (UPX's canonical path restores the file, so no dump is needed; the GUI step of Scylla is
+  manual and was not automated) — see §5 of the case write-up. The dynamic confirmation of the
+  VMProtect/Themida samples remains blocked because those images do not load here at all.
