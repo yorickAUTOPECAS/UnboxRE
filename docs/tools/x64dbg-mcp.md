@@ -75,9 +75,19 @@ $ curl -s -X POST http://127.0.0.1:9094/ \
 **Fluxo de unpack (o caso de uso mais valioso):**
 
 ```text
-LoadBinary → RunToAddress → StepOver → DetectOEP → SetBreakpoint
-→ run → DumpModule → AnalyzeModule
+LoadBinary → RunToAddress → StepOver → DetectOEP → SetHardwareBreakpoint
+→ run → ListModules (no ponto de parada) → DumpModule → AnalyzeModule
 ```
+
+Duas armadilhas medidas, e ambas com correção no toolkit (`scripts/x64dbg-drive.mjs`):
+
+* **`SetBreakpoint` (software) em código que o packer ainda vai escrever corrompe o dump** — o
+  `int3` vai para a memória e o debugger restaura o byte *pré-decriptação* ao parar. Use
+  `SetHardwareBreakpoint` nesse cenário (ver [x64dbg.md](x64dbg.md) e
+  [../06-workflows.md](../06-workflows.md) Cenário 1);
+* **`ListModules` só vale no ponto de parada**: no entry point o stub ainda não carregou as DLLs
+  do alvo (4 módulos contra 18 medidos no caso iat-hardcase), e a lista curta reconstrói a IAT
+  errada.
 
 ## Integração com o resto do setup
 

@@ -702,8 +702,12 @@ $ powershell -File ./scripts/health-check.ps1 -Json → ok 39 / warn 0 / fail 0
 
 ### 8.11 Reproduzir
 
+> O caminho de captura abaixo usa o breakpoint de **software** que corrompeu o dump (§8.3) — ele
+> fica aqui como registro histórico da rodada. O caminho atual, com breakpoint de hardware, o log
+> de breakpoints e a verificação sem original, está em **§9**.
+
 ```bash
-# 1) captura (x64dbg): breakpoint de HARDWARE no OEP — NUNCA de software em .text antes
+# 1) captura (x64dbg): o certo é breakpoint de HARDWARE no OEP — NUNCA de software em .text antes
 #    de o stub decriptar a seção (é o que corrompeu o dump, §8.3)
 node scripts/x64dbg-drive.mjs --load work/iat-hardcase/src/clean.hardcase.exe
 node scripts/x64dbg-drive.mjs --dump-module clean.hardcase work/iat-hardcase/unpacked/dump-raw.exe
@@ -727,3 +731,175 @@ powershell -File work/iat-hardcase/scripts/run-and-probe.ps1 \
 node scripts/check-consistency.mjs
 node scripts/verify-licenses.mjs
 ```
+---
+
+## 9. O byte que o breakpoint restaurava errado — causa eliminada e rede de segurança (rodada de 2026-10-14, 2ª parte)
+
+O defeito do §8.3 (breakpoint de **software** em `.text` antes de o stub decriptar → dump com uma
+instrução trocada) só foi pego porque existia o original em claro para comparar. Os próximos
+alvos não têm original. Esta parte fecha a causa na captura e cria uma rede de segurança que não
+depende dele — com as duas provas pedidas: **reprodução do bug** e **captura com hardware já
+correta**, cada uma com comando e saída.
+
+### 9.1 O que mudou
+
+| arquivo | mudança |
+|---|---|
+| `scripts/x64dbg-drive.mjs` | `--hw-break` (**breakpoint de hardware**, DR0-DR3: não escreve na memória), `--hw-type`, `--hw-size`, `--list-breaks`, `--bp-log <arq.jsonl>` (grava cada breakpoint da captura) — o hardware passa a ser o caminho padrão para parar em código que o packer ainda pode reescrever |
+| `scripts/x64dbg-drive.mjs` | `--hw-break` **confere** o `ListBreakpoints` e falha (exit 1) quando o endereço não foi armado — o x64dbg aceita o 5º em silêncio (medido) |
+| `scripts/verify-dump.mjs` | **MODO FRACO** sem `--original` (`--packed` + `--bp-log`): resíduo de `0xCC`, byte parado no tempo nos endereços do log, faixa ainda cifrada — rotulado na própria saída como substituto |
+| `docs/06-workflows.md` | Cenário 1: passo 4 passa a ser breakpoint de hardware, quadro de quando usar cada tipo com o limite medido, receita de sessão limpa, passo 12 (verificação sem original) e a armadilha medida reescrita como **tratada por padrão** |
+| `docs/02-catalogo-ferramentas.md`, `README.md`, `scripts/README.md` | catálogo e tabelas de script descrevem as duas ferramentas novas de captura/verificação |
+
+### 9.2 Prova A — o bug, reproduzido de propósito
+
+```console
+$ cd work/iat-hardcase && bash scripts/prova-a-swbp.sh
+# breakpoint de SOFTWARE em base+0x1F98, com a seção .text ainda CIFRADA, run, DumpModule
+RVA 0x1f98  51 fd 93 0e 9d b5 73 1d   ← empacotado (o que estava na memória antes do stub)
+RVA 0x1f98  51 89 5c 24 18 55 48 8b   ← dump capturado agora (BP de SOFTWARE)
+RVA 0x1f98  48 89 5c 24 18 55 48 8b   ← original em claro (referência)
+```
+
+`0x51 = 0x48 ^ 0x19`, o byte do arquivo empacotado: o debugger devolveu o valor **pré-decriptação**.
+Evidência: `work/iat-hardcase/evidence/20261014-82-prova-a-swbp.txt`.
+
+### 9.3 Prova B — a mesma parada com breakpoint de hardware
+
+Sessão nova, banco do módulo apagado (`db/clean.hardcase.exe.dd64`), log
+`evidence/20261014-84-prova-b-hwbp.txt`:
+
+```console
+$ bash scripts/prova-b-hwbp.sh
+─ SetHardwareBreakpoint {"address":"0x7ff703e71f98","type":"x","size":1}
+  Hardware breakpoint set.
+  [Hardware] 0x7FF703E71F98 clean.hardcase.exe! (enabled)
+…
+RVA 0x1f98  48 89 5c 24 18 55 48 8b   <- dump capturado agora (BP de HARDWARE)
+RVA 0x1f98  51 89 5c 24 18 55 48 8b   <- dump da Prova A (BP de SOFTWARE)
+RVA 0x1f98  48 89 5c 24 18 55 48 8b   <- original em claro (referência)
+```
+
+E a cadeia a partir **dessa** captura, sem patch manual nenhum (`evidence/20261014-85`, `-86`, `-87`):
+
+```console
+$ node scripts/x64dbg-drive.mjs --modules > evidence/20261014-86-modules-bp.txt   # 18 módulos
+$ node scripts/rebuild-iat.mjs --dump unpacked/dump-hwbp.exe --out unpacked/dump-hwbp-fixed2.exe \
+       --modules evidence/20261014-86-modules-bp.txt --mem evidence/mem --oep 0x19c0
+  IAT encontrada: 315 slot(s) resolvido(s) — 48 por thunk direto, 288 por varredura
+  70 DLL(s) reconstruída(s)  ·  [!!] 2 slot(s) sem resolução  ·  exit=0
+$ node scripts/reset-load-state.mjs --dump unpacked/dump-hwbp-fixed2.exe \
+       --out unpacked/dump-hwbp-final2.exe
+  cookie: antes = 0x00006a5347c34196 (estado de EXECUÇÃO) → depois = 0x00002b992ddfa232 (sentinela MSVC)
+$ node scripts/verify-dump.mjs --dump unpacked/dump-hwbp-fixed2.exe --original ../packer-demo/clean.exe
+  X .text           0 byte(s) diferente(s) de 157666
+  CODIGO: 4 byte(s) em 1 faixa (rva 0x28011 [fothk] — auto-patch do próprio programa, §8.9)
+$ powershell -File scripts/run-and-probe.ps1 -Target unpacked/dump-hwbp-final2.exe
+  exited : sim  (ExitCode=0 = 0x0)        ← 4/4 execuções
+```
+
+Detalhe que custou uma tentativa errada e virou passo do Cenário 1: a lista de módulos tem de ser
+tomada **no ponto de parada**. No EP (antes de o stub carregar as DLLs do alvo) ela tinha **4**
+módulos e o rebuild resolvia 126 slots em 53 blocos; no ponto de parada são **18** módulos e 315
+slots em 70 blocos (`evidence/20261014-84-modules.txt` vs `-86-modules-bp.txt`).
+### 9.4 Prova C — sem original, o modo fraco pega o mesmo byte
+
+`evidence/20261014-89-prova-c.txt`:
+
+```console
+# A) captura com BP de SOFTWARE, modo FORTE (--original):
+  CODIGO: 5 byte(s) em 2 faixa(s)
+      rva 0x1f98  1B  [.text]   esperado 48 89 5c 24 | no dump 51 89 5c 24      exit=1
+
+# B) o MESMO arquivo, SEM original (--packed + --bp-log da captura):
+  endereços de breakpoint da captura: 2 (log: 20261014-82-bp-log-soft.jsonl)
+      0x7ff703e71f98  [sw] rva 0x1f98 byte 0x51 · empacotado 0x51 · seção reescrita 99.6%
+          o byte é o do arquivo EMPACOTADO e a seção foi reescrita: o debugger devolveu o
+          valor pré-escrita (defeito do iat-hardcase)
+  Veredito: 2 achado(s) de marca conhecida de defeito (modo fraco, sem original)      exit=1
+
+# C) a MESMA captura com hardware, sem original: nenhuma das 3 marcas · exit=0
+```
+
+E a checagem de `0xCC` **tem dentes** (senão seria teatro): forçando `0xCC` em `0x1F98` num dump
+bom (`unpacked/dump-hwbp-int3.exe`),
+
+```console
+  Veredito: 1 achado(s) de marca conhecida de defeito (modo fraco, sem original):
+      [int3-em-breakpoint] rva 0x1f98  int3 no endereço de um breakpoint do log da captura   exit=1
+
+# o MESMO arquivo, sem --bp-log: o 0xCC cai na lista de candidatos (293 ocorrências — o padding
+# do MSVC está entre elas) e o veredito sai 0. Sem o log da captura, a rede quase não serve.
+```
+
+**O que o modo fraco NÃO vê** (declarado na saída da ferramenta e no cabeçalho): byte trocado por
+valor plausível em endereço **sem** breakpoint, seção remontada errada, patch manual. Ele não
+prova que o dump está limpo — é o que existe quando não há original em claro.
+
+### 9.5 Limites medidos (em vez de supostos)
+
+```console
+$ node scripts/x64dbg-drive.mjs --hw-break 0x7ff703e72300     # com 4 slots já ocupados
+─ SetHardwareBreakpoint {"address":"0x7FF703E72300","type":"x","size":1}
+  Hardware breakpoint set.                                     ← disse que sim
+─ ListBreakpoints {}
+  [Hardware] 0x7FF703E71F98 … 0x7FF703E72000 … 0x7FF703E72100 … 0x7FF703E72200 …
+  [!!] breakpoint de hardware NÃO foi armado em 0x7ff703e72300: a lista não mostra esse
+       endereço (DR0-DR3 = 4 por thread, já ocupados) — o x64dbg respondeu "set" mesmo assim
+  exit do driver = 1   ·   --bp-log: {"kind":"hw","address":"0x7ff703e72300","armed":false}
+```
+
+* **4** breakpoints de hardware por thread (DR0-DR3), medido; para mais pontos:
+  `SetMemoryBreakpoint` (guard page) ou software **depois** que a seção está em claro
+  (`evidence/20261014-88-limite-dr.txt`, `…-90-hw-break-armed.txt`).
+* **A sessão não é limpa por reiniciar o debugger**: o x64dbg persiste breakpoints por módulo em
+  `x64dbg/release/x64/db/<módulo>.dd64` e eles voltam armados na carga seguinte — medido com os 4
+  de hardware ainda na lista depois de reiniciar. Só com o banco apagado e o debugger reaberto a
+  lista fica `No breakpoints set.` (é o passo 0 do Cenário 1).
+* **O x64dbg também para em TLS callback de DLL de sistema**: na captura do caso a sequência de
+  `run` precisou de 3 paradas até cair no breakpoint de hardware (`evidence/20261014-84`, §6).
+  Script que conta com 1 `run` só, falha.
+
+### 9.6 Checagens offline (as mesmas do CI), depois de tudo
+
+```console
+$ node scripts/check-consistency.mjs      → [OK] nenhuma divergência (197 verificações)   exit=0
+$ node scripts/verify-licenses.mjs        → [OK] 79 licenças batem com a fonte primária   exit=0
+$ node scripts/gen-mcp-config.mjs --list --json  → 4 clientes, JSON válido                exit=0
+```
+### 9.7 Reproduzir (o caminho novo, do zero)
+
+```bash
+# 0) sessão limpa: sem isso um breakpoint de rodada anterior contamina a captura
+powershell -File ./scripts/start-x64dbg.ps1 -Stop
+rm -f x64dbg/release/x64/db/clean.hardcase.exe.dd64 x64dbg/release/x64/db/clean.hardcase.exe.dd64.cmdline
+powershell -File ./scripts/start-x64dbg.ps1
+node scripts/x64dbg-drive.mjs --list-breaks            # tem de dizer "No breakpoints set."
+
+# 1) A PROVA DO BUG (breakpoint de software antes de o stub decriptar) — para ver o defeito acontecer
+cd work/iat-hardcase && bash scripts/prova-a-swbp.sh   # dump-swbp.exe com 0x51 na rva 0x1F98
+
+# 2) A CAPTURA CERTA (hardware) e a cadeia inteira, sem patch manual
+bash scripts/prova-b-hwbp.sh                           # dump-hwbp.exe com 0x48 na rva 0x1F98
+node scripts/rebuild-iat.mjs --dump unpacked/dump-hwbp.exe --out unpacked/dump-hwbp-fixed2.exe \
+     --modules evidence/20261014-86-modules-bp.txt --mem evidence/mem --oep 0x19c0
+node scripts/reset-load-state.mjs --dump unpacked/dump-hwbp-fixed2.exe --out unpacked/dump-hwbp-final2.exe
+powershell -File scripts/run-and-probe.ps1 -Target unpacked/dump-hwbp-final2.exe   # exit 0
+
+# 3) AS DUAS VERIFICAÇÕES: com original (forte) e sem original (fraca, rotulada como tal)
+node scripts/verify-dump.mjs --dump unpacked/dump-hwbp-fixed2.exe --original ../packer-demo/clean.exe
+node scripts/verify-dump.mjs --dump unpacked/dump-hwbp-fixed2.exe \
+     --packed src/clean.hardcase.exe --bp-log evidence/20261014-84-bp-log-hw.jsonl
+
+# 4) o modo fraco sobre o artefato corrompido (Prova A/C) e o limite do DR (Prova D)
+bash scripts/prova-c.sh ; bash scripts/prova-d-hwbreak-armed.sh
+```
+
+### 9.8 O que continua aberto (honesto)
+
+* **Scylla pela GUI** segue não executado (o plugin não tem CLI) — inalterado em relação a §8.9.
+* O modo fraco **não** substitui a comparação com original: alvo sem original em claro tem
+  cobertura parcial declarada, não garantia.
+* Os 6 alvos reais da pasta `Alvos` **não** foram tocados nesta rodada, por escopo: a primeira
+  tarefa do round seguinte é listar o conteúdo da pasta (nome, dificuldade declarada) antes de
+  escolher qual atacar.

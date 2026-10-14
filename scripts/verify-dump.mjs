@@ -48,9 +48,38 @@
  *     são listadas, não comparadas;
  *   * `dados` inclui estado legítimo do programa — o relatório é uma lista para julgar.
  *
+ * MODO FRACO — quando NÃO existe original em claro (challenge/crackme, alvo comercial)
+ * ---------------------------------------------------------------------------------
+ * Aí a comparação acima é impossível, e o script NÃO pode dizer "está limpo". O que ele faz
+ * (e o que cada checagem vale):
+ *
+ *   1. **resíduo de int3** — 0xCC isolado em seção EXECUTÁVEL. É a marca de um breakpoint de
+ *      software que ficou na memória. Força: indício — o padding de alinhamento do MSVC
+ *      também é 0xCC, e sozinho um 0xCC não prova nada. Se o endereço estiver no log da
+ *      captura (`--bp-log`), é forte;
+ *   2. **byte parado no tempo** — nos endereços de breakpoint do log, compara o byte do dump
+ *      com o do arquivo EMPACOTADO (`--packed`). Se o byte é igual ao empacotado (que o stub
+ *      deveria ter reescrito) e o resto da seção foi reescrito, o debugger devolveu o valor
+ *      pré-escrita — é exatamente o defeito do iat-hardcase (`0x48` → `0x51`). Esta checagem
+ *      é precisa justamente porque o endereço vem do log: sem o endereço, um byte igual ao
+ *      empacotado ocorre ~1 vez a cada 256 bytes por puro acaso;
+ *   3. **ilha ainda empacotada** — 8+ bytes consecutivos idênticos ao arquivo empacotado, com
+ *      as DUAS bordas diferentes, dentro de uma seção ≥90% reescrita: bloco que não foi
+ *      decifrado (8 bytes por acaso é 256^-8; o critério de borda evita o que o stub não toca —
+ *      .rsrc/.reloc do arquivo continuam iguais e não são defeito).
+ *
+ * O que o modo fraco NÃO vê: byte escrito com valor plausível em endereço onde não havia
+ * breakpoint e sem equivalente no empacotado (ex.: seção remontada errada, patch manual).
+ * Para isso só a comparação com original. `--original` é o teste forte; este é o substituto.
+ *
  * Uso:
  *   node scripts/verify-dump.mjs --dump <reconstruido.exe> --original <que-roda.exe>
  *        [--max <n>] [--strict] [--json]
+ *   node scripts/verify-dump.mjs --dump <reconstruido.exe> [--packed <empacotado.exe>]
+ *        [--bp-log <bps.jsonl>] [--bp <end,...>] [--max <n>] [--json]
+ *
+ *   # o log de breakpoints sai da própria captura (x64dbg-drive):
+ *   node scripts/x64dbg-drive.mjs --load alvo.exe --hw-break <end> --bp-log bps.jsonl
  *
  * Exit: 0 nenhuma diferença em seção executável · 1 há (ou qualquer não explicada, com
  *       --strict) · 2 erro de uso ou arquivo ilegível. Nunca usa sudo.
@@ -63,16 +92,27 @@ const argv = process.argv.slice(2);
 const has = (f) => argv.includes(f);
 const val = (f, d) => (argv.includes(f) ? argv[argv.indexOf(f) + 1] : d);
 
-if (has("--help") || has("-h") || !has("--dump") || !has("--original")) {
+if (has("--help") || has("-h") || !has("--dump")) {
   console.log("uso: node scripts/verify-dump.mjs --dump <reconstruido.exe> --original <que-roda.exe> [--max n] [--strict] [--json]");
+  console.log("     node scripts/verify-dump.mjs --dump <reconstruido.exe> [--packed <empacotado.exe>] [--bp-log <bps.jsonl>] [--bp <end,...>] [--json]");
   console.log("  --dump       arquivo saído do rebuild-iat/reset-load-state (o que você vai rodar)");
-  console.log("  --original   a mesma build em claro — base e mapa de relocação saem dele");
+  console.log("  --original   a mesma build em claro — base e mapa de relocação saem dele (o teste FORTE)");
+  console.log("  --packed     o arquivo que foi carregado no debugger (o empacotado) — só no modo fraco");
+  console.log("  --bp-log     log da captura (x64dbg-drive --bp-log): onde havia breakpoint");
+  console.log("  --bp         endereços de breakpoint avulsos (VA da imagem ou RVA), separados por vírgula");
   console.log("  --max n      quantas faixas mostrar por classe (default 10; 0 = só a contagem)");
   console.log("  --strict     falha também se houver diferença em DADOS (verifica um dump tirado em tempo de carga)");
+  console.log("");
+  console.log("  SEM --original o script entra no MODO FRACO: resíduo de 0xCC em seção executável, byte");
+  console.log("  parado no tempo nos endereços de breakpoint da captura e faixas ainda cifradas. É um");
+  console.log("  substituto — não prova que o dump está limpo. Ver o cabeçalho do arquivo.");
   process.exit(has("--dump") ? 2 : 0);
 }
 const dumpPath = val("--dump");
 const origPath = val("--original");
+const packedPath = val("--packed");
+const bpLogPath = val("--bp-log");
+const bpArg = val("--bp");
 const MAX = Number(val("--max", "10"));
 const STRICT = has("--strict");
 const JSON_OUT = has("--json");
@@ -118,21 +158,348 @@ function parsePE(buf, label) {
   };
 }
 
-let dumpBuf, origBuf;
+// ── MODO FRACO (sem original) ────────────────────────────────────────────────
+// Sem `--original` não existe "o que deveria estar aqui": só marcas que um defeito deixa.
+// As três checagens e a força de cada uma estão no cabeçalho deste arquivo.
+
+/** Endereço (VA da imagem ou RVA) → RVA no dump. */
+function rvaDoEndereco(raw, d) {
+  const s = String(raw).trim();
+  const v = /^0x[0-9a-f]+$/i.test(s)
+    ? BigInt(s)
+    : /^[0-9a-f]{6,}$/i.test(s)
+      ? BigInt(`0x${s}`)
+      : /^\d{4,}$/.test(s)
+        ? BigInt(s)
+        : null;
+  if (v === null) return null;
+  if (v >= d.base && v < d.base + BigInt(d.sizeOfImage)) return { rva: Number(v - d.base), como: "VA da imagem" };
+  return { rva: Number(v & 0xffffffffn), como: "RVA" };
+}
+
+/** Lê o log de breakpoints do x64dbg-drive (JSONL) — ou uma lista de endereços por linha. */
+function lerBpLog(file) {
+  const out = [];
+  for (const line of readFileSync(file, "utf8").split(/\r?\n/)) {
+    const t = line.trim();
+    if (!t || t.startsWith("#") || t.startsWith("//")) continue;
+    let address = null;
+    let kind = "?";
+    try {
+      const j = JSON.parse(t);
+      address = String(j.address ?? j.target ?? j.addr ?? "").trim() || null;
+      kind = j.kind ?? j.type ?? "?";
+    } catch {
+      const m = t.match(/0x[0-9a-f]+|[0-9a-f]{6,}/i);
+      if (m) { address = m[0]; kind = "texto"; }
+    }
+    if (address) out.push({ address, kind });
+  }
+  return out;
+}
+
+/** 0xCC em seção EXECUTÁVEL: corridas curtas (1..3 = candidato a int3) e longas (padding). */
+function varreCC(d) {
+  const curtas = [];
+  const longas = [];
+  let bytesLongos = 0;
+  for (const s of d.sections) {
+    if (!(s.chars & IMAGE_SCN_MEM_EXECUTE)) continue;
+    const len = Math.max(s.vsz, 0);
+    let run = 0;
+    let start = 0;
+    for (let i = 0; i < len; i++) {
+      const off = d.rva2off(s.va + i);
+      if (off < 0 || off >= d.buf.length) { run = 0; continue; }
+      if (d.buf[off] === 0xcc) {
+        if (!run) start = s.va + i;
+        run++;
+      } else if (run) {
+        const dest = run > 3 ? longas : curtas;
+        dest.push({ rva: start, len: run, sec: s.name });
+        if (run > 3) bytesLongos += run;
+        run = 0;
+      }
+    }
+    if (run) {
+      const dest = run > 3 ? longas : curtas;
+      dest.push({ rva: start, len: run, sec: s.name });
+      if (run > 3) bytesLongos += run;
+    }
+  }
+  return { curtas, longas, bytesLongos };
+}
+
+/**
+ * O dump cru do `DumpModule` mantém a TABELA de seções no layout de arquivo e os DADOS no
+ * layout de memória: nas seções em que SizeOfRawData > VirtualSize (medido: .pdata/.didat/
+ * .rsrc/.reloc/.pkr) `rawptr != RVA` e traduzir RVA por ela dá offset errado — comparar ali
+ * produz faixas falsas. O `rebuild-iat` normaliza isso; até lá a seção não é comparável.
+ */
+function secaoNaoNormalizada(sec) {
+  return sec.rawsz > sec.vsz && sec.raw !== sec.va;
+}
+
+/** Dump vs. arquivo EMPACOTADO: fração reescrita da seção + faixas de 8+ bytes ainda iguais. */
+function comparaComEmpacotado(d, packed, sec) {
+  if (secaoNaoNormalizada(sec)) return null;
+  const ps = packed.sections.find((x) => x.name === sec.name);
+  if (!ps) return null;
+  const len = Math.min(sec.vsz, ps.vsz);
+  let dif = 0;
+  let comp = 0;
+  let runStart = -1;
+  const faixas = [];
+  for (let i = 0; i < len; i++) {
+    const a = d.rva2off(sec.va + i);
+    const b = packed.rva2off(sec.va + i);
+    if (a < 0 || b < 0) break;
+    comp++;
+    if (d.buf[a] === packed.buf[b]) {
+      if (runStart < 0) runStart = sec.va + i;
+    } else {
+      dif++;
+      if (runStart >= 0 && i - (runStart - sec.va) >= 8) faixas.push({ lo: runStart, hi: sec.va + i });
+      runStart = -1;
+    }
+  }
+  if (runStart >= 0 && len - (runStart - sec.va) >= 8) faixas.push({ lo: runStart, hi: sec.va + len });
+  return { dif, comp, taxa: comp ? dif / comp : 0, faixas };
+}
+
+/**
+ * Verificação sem original. Devolve o código de saída (1 = achado forte; 0 = nada encontrado —
+ * o que NÃO significa "limpo"). O aviso de que é um substituto fraco sai sempre no topo.
+ */
+function weakVerify(d, { packedBuf, packedPath, bpLogPath, bpArg, nomeDump, MAX, JSON_OUT }) {
+  let packed = null;
+  if (packedBuf) {
+    try {
+      packed = parsePE(packedBuf, basename(packedPath));
+    } catch (e) {
+      console.error(`--packed: ${e.message}`);
+      process.exit(2);
+    }
+  }
+
+  const cc = varreCC(d);
+  const naoNormalizadas = d.sections.filter(secaoNaoNormalizada).map((s) => s.name);
+
+  // endereços de breakpoint da captura: do log do x64dbg-drive e/ou de --bp
+  const bps = [];
+  if (bpLogPath) {
+    let lidos;
+    try {
+      lidos = lerBpLog(bpLogPath);
+    } catch (e) {
+      console.error(`--bp-log: não consegui ler ${bpLogPath}: ${e.message}`);
+      process.exit(2);
+    }
+    for (const b of lidos) {
+      const alvo = rvaDoEndereco(b.address, d);
+      bps.push({ ...b, alvo, rva: alvo ? alvo.rva : null, origem: basename(bpLogPath) });
+    }
+  }
+  if (bpArg) {
+    for (const a of bpArg.split(",")) {
+      const s = a.trim();
+      if (!s) continue;
+      const alvo = rvaDoEndereco(s, d);
+      bps.push({ address: s, kind: "cli", alvo, rva: alvo ? alvo.rva : null, origem: "--bp" });
+    }
+  }
+  const bpRvas = new Set(bps.filter((b) => b.rva !== null).map((b) => b.rva));
+  const achados = [];
+
+  // (1) resíduo de int3 em seção executável
+  for (const r of cc.curtas) {
+    const noBp = bpRvas.has(r.rva);
+    achados.push({
+      classe: noBp ? "int3-em-breakpoint" : "int3",
+      rva: r.rva, tamanho: r.len, onde: r.sec,
+      forca: noBp ? "forte" : "candidato",
+      detalhe: noBp
+        ? "0xCC no ENDEREÇO de um breakpoint do log da captura: int3 que ficou na memória"
+        : "0xCC isolado em seção executável: candidato (o padding de alinhamento do MSVC também usa 0xCC)",
+    });
+  }
+
+  // (2) byte parado no tempo, nos endereços de breakpoint da captura
+  const porBp = [];
+  for (const b of bps) {
+    const linha = { address: b.address, tipo: b.kind, como: b.alvo ? b.alvo.como : "?", origem: b.origem, rva: b.rva };
+    if (b.rva === null) {
+      linha.veredito = "endereço não reconhecido (ignorado)";
+      porBp.push(linha);
+      continue;
+    }
+    const off = d.rva2off(b.rva);
+    const sec = d.secOf(b.rva);
+    linha.secao = sec ? sec.name : "<fora de seção>";
+    if (off < 0) {
+      linha.veredito = "RVA fora do arquivo";
+      porBp.push(linha);
+      continue;
+    }
+    linha.byte = `0x${d.buf[off].toString(16).padStart(2, "0")}`;
+    if (d.buf[off] === 0xcc) {
+      linha.veredito = "0xCC no endereço do breakpoint: resíduo de int3";
+      if (!achados.some((a) => a.rva === b.rva && a.classe.startsWith("int3"))) {
+        achados.push({ classe: "int3-em-breakpoint", rva: b.rva, tamanho: 1, onde: linha.secao, forca: "forte", detalhe: "int3 no endereço de um breakpoint do log da captura" });
+      }
+      porBp.push(linha);
+      continue;
+    }
+    if (!packed) {
+      linha.veredito = "sem 0xCC (para julgar o resto do byte falta --packed)";
+      porBp.push(linha);
+      continue;
+    }
+    const pr = sec ? comparaComEmpacotado(d, packed, sec) : null;
+    const poff = packed.rva2off(b.rva);
+    const pbyte = poff >= 0 ? packed.buf[poff] : null;
+    linha.noEmpacotado = pbyte === null ? "?" : `0x${pbyte.toString(16).padStart(2, "0")}`;
+    linha.reescritaDaSecao = pr ? `${(pr.taxa * 100).toFixed(1)}%` : "?";
+    if (pbyte !== null && pbyte === d.buf[off] && pr && pr.taxa > 0.25) {
+      linha.veredito = "o byte é o do arquivo EMPACOTADO e a seção foi reescrita: o debugger devolveu o valor pré-escrita (defeito do iat-hardcase)";
+      achados.push({
+        classe: "byte-parado-no-tempo", rva: b.rva, tamanho: 1, onde: linha.secao, forca: "forte",
+        detalhe: `byte ${linha.byte} igual ao empacotado, com ${linha.reescritaDaSecao} da seção ${linha.secao} reescrita pelo stub`,
+      });
+    } else if (pbyte !== null && pbyte === d.buf[off]) {
+      linha.veredito = "byte igual ao empacotado, mas a seção NÃO parece reescrita: sem indício (o dump pode ser o próprio arquivo)";
+    } else {
+      linha.veredito = "o byte NÃO é o do empacotado: sem resíduo neste endereço";
+    }
+    porBp.push(linha);
+  }
+
+  // (3) ilhas ainda empacotadas: 8+ bytes idênticos ao empacotado, com as DUAS bordas diferentes,
+  // dentro de seção praticamente toda reescrita (>=90%). O critério de borda é o que separa
+  // "bloco que não foi decifrado" de "pedaço de seção que o stub não toca" (.rsrc/.reloc
+  // legítimos continuam idênticos ao arquivo — medido: com "seção >=25% reescrita" o check
+  // acusava centenas de faixas em .rsrc/.pkr, todas falsas).
+  const faixas = [];
+  const difereDoEmpacotado = (rva) => {
+    const a = d.rva2off(rva);
+    const b = packed.rva2off(rva);
+    return a >= 0 && b >= 0 && a < d.buf.length && b < packed.buf.length && d.buf[a] !== packed.buf[b];
+  };
+  if (packed) {
+    for (const s of d.sections) {
+      const pr = comparaComEmpacotado(d, packed, s);
+      if (!pr || pr.taxa < 0.9) continue;
+      for (const f of pr.faixas) {
+        if (!difereDoEmpacotado(f.lo - 1) || !difereDoEmpacotado(f.hi)) continue;
+        faixas.push({ rva: f.lo, tamanho: f.hi - f.lo, onde: s.name });
+        achados.push({ classe: "faixa-empacotada", rva: f.lo, tamanho: f.hi - f.lo, onde: s.name, forca: "forte", detalhe: `${f.hi - f.lo} bytes idênticos ao empacotado com as bordas diferentes, em seção ${(pr.taxa * 100).toFixed(0)}% reescrita: bloco que não foi decifrado` });
+      }
+    }
+  }
+
+  const fortes = achados.filter((a) => a.forca === "forte");
+  const exec = d.sections.filter((s) => s.chars & IMAGE_SCN_MEM_EXECUTE);
+  const relatorio = {
+    modo: "sem-original",
+    aviso: "MODO FRACO: não prova que o dump está limpo. Só encontra (1) resíduo 0xCC em seção executável, (2) byte no endereço de um breakpoint da captura ainda igual ao arquivo empacotado, (3) faixa de 8+ bytes ainda cifrada. Com original em claro, use --original.",
+    dump: nomeDump,
+    empacotado: packed ? basename(packedPath) : null,
+    logDeBreakpoints: bpLogPath ? basename(bpLogPath) : null,
+    baseDump: `0x${d.base.toString(16)}`,
+    secoesNaoNormalizadas: naoNormalizadas,
+    secoesExecutaveis: exec.map((s) => `${s.name} (${s.vsz} B)`),
+    residuoCC: { curtas: cc.curtas.length, longas: cc.longas.length, bytesEmCorridasLongas: cc.bytesLongos },
+    breakpoints: porBp,
+    faixasEmpacotadas: faixas,
+    achados,
+    achadosFortes: fortes.length,
+  };
+
+  if (JSON_OUT) {
+    console.log(JSON.stringify(relatorio, null, 2));
+    return fortes.length ? 1 : 0;
+  }
+
+  console.log("");
+  console.log(`UnboxRE — verificação de dump (MODO FRACO, sem --original): ${nomeDump}${packed ? ` vs ${basename(packedPath)} (empacotado)` : ""}`);
+  console.log("─".repeat(78));
+  console.log("  [modo fraco] aqui NÃO existe 'o que deveria estar no arquivo'. Este modo só encontra:");
+  console.log("               (1) resíduo 0xCC em seção executável; (2) byte no endereço de um breakpoint");
+  console.log("               da captura ainda igual ao arquivo EMPACOTADO; (3) faixa de 8+ bytes cifrada.");
+  console.log("               Ele NÃO vê byte trocado em endereço sem breakpoint. Com original em claro,");
+  console.log("               use --original: é o teste forte. Isto é o substituto.");
+  console.log("");
+  console.log(`  base do dump = ${relatorio.baseDump}  ·  seções executáveis: ${relatorio.secoesExecutaveis.join(", ")}`);
+  if (naoNormalizadas.length) {
+    console.log(`  [aviso] tabela de seções NÃO normalizada em: ${naoNormalizadas.join(", ")} (rawptr != RVA) —`);
+    console.log("          essas seções ficam fora da comparação com o empacotado (o rebuild-iat as normaliza;");
+    console.log("          comparar com o offset errado dava centenas de faixas falsas — medido).");
+  }
+  console.log(`  resíduo 0xCC: ${cc.curtas.length} corrida(s) curta(s) (candidato) · ${cc.longas.length} corrida(s) longa(s) (padding, ${cc.bytesLongos} B)`);
+  for (const r of cc.curtas.slice(0, MAX)) {
+    const emBp = bpRvas.has(r.rva) ? "  ← ENDEREÇO DE BREAKPOINT DO LOG" : "";
+    console.log(`      rva 0x${r.rva.toString(16)}  ${r.len}B  [${r.sec}]${emBp}`);
+  }
+  if (MAX && cc.curtas.length > MAX) console.log(`      ... (+${cc.curtas.length - MAX})`);
+  console.log(`  endereços de breakpoint da captura: ${bps.length}${bpLogPath ? ` (log: ${basename(bpLogPath)})` : ""}`);
+  for (const b of porBp) {
+    console.log(`      ${String(b.address).padEnd(20)} [${b.tipo}] rva ${b.rva === null ? "?" : `0x${b.rva.toString(16)}`}${b.byte ? ` byte ${b.byte}` : ""}${b.noEmpacotado ? ` · empacotado ${b.noEmpacotado}` : ""}${b.reescritaDaSecao ? ` · seção reescrita ${b.reescritaDaSecao}` : ""}`);
+    console.log(`          ${b.veredito}`);
+  }
+  console.log(`  faixas ainda empacotadas (8+ bytes, em seção reescrita): ${faixas.length}`);
+  for (const f of faixas.slice(0, MAX)) console.log(`      rva 0x${f.rva.toString(16)}  ${f.tamanho}B  [${f.onde}]`);
+  console.log("");
+  if (fortes.length) {
+    console.log(`  Veredito: ${fortes.length} achado(s) de marca conhecida de defeito (modo fraco, sem original):`);
+    for (const a of fortes) console.log(`      [${a.classe}] rva 0x${a.rva.toString(16)}  ${a.detalhe}`);
+    console.log("            (religue a captura com breakpoint de HARDWARE e refaça o dump; ver docs/06-workflows.md)");
+  } else {
+    console.log("  Veredito: nenhuma das 3 marcas do modo fraco apareceu. Isso NÃO é prova de que o dump");
+    console.log("            está limpo — sem original em claro, um byte trocado em endereço sem breakpoint é");
+    console.log("            invisível aqui.");
+  }
+  console.log("");
+  return fortes.length ? 1 : 0;
+}
+
+let dumpBuf;
 try {
   dumpBuf = readFileSync(dumpPath);
-  origBuf = readFileSync(origPath);
 } catch (e) {
-  console.error(`não consegui ler: ${e.message}`);
+  console.error(`não consegui ler o dump: ${e.message}`);
   process.exit(2);
 }
-let d, o;
+let origBuf = null;
+if (origPath) {
+  try {
+    origBuf = readFileSync(origPath);
+  } catch (e) {
+    console.error(`não consegui ler o original: ${e.message}`);
+    process.exit(2);
+  }
+}
+let d, o = null;
 try {
   d = parsePE(dumpBuf, basename(dumpPath));
-  o = parsePE(origBuf, basename(origPath));
+  if (origBuf) o = parsePE(origBuf, basename(origPath));
 } catch (e) {
   console.error(e.message);
   process.exit(2);
+}
+
+// Sem original em claro não há comparação forte: entra o modo fraco (ver o cabeçalho) e o
+// script SAI aqui — o caminho abaixo assume `expected`/`o` e não faz sentido sem eles.
+if (!o) {
+  let packedBuf = null;
+  if (packedPath) {
+    try {
+      packedBuf = readFileSync(packedPath);
+    } catch (e) {
+      console.error(`--packed: não consegui ler ${packedPath}: ${e.message}`);
+      process.exit(2);
+    }
+  }
+  process.exit(weakVerify(d, { packedBuf, packedPath, bpLogPath, bpArg, nomeDump: basename(dumpPath), MAX, JSON_OUT }));
 }
 
 const delta = d.base - o.base;

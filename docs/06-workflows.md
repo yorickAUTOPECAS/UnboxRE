@@ -41,35 +41,83 @@ PS> upx -t .\acme.exe                 # confirma UPX e a variante
 PS> upx -d .\acme.exe -o .\unpacked\acme.unpacked.exe
 ```
 
-Se não for UPX puro (stub modificado), vá pelo debugger:
+Se não for UPX puro (stub modificado), vá pelo debugger. **A regra que decide a qualidade do
+dump está no passo 4** — leia o quadro logo abaixo antes de armar qualquer breakpoint:
 
 ```
 1. Abra no x64dbg:  LoadBinary work/acme-app-2.1/src/acme.exe
-2. Rode até o entry point:  RunToAddress <EP>   → depois StepOver até o salto final
+2. Vá até o entry point:  RunToAddress <EP>   → depois StepOver até o salto final
 3. Use DetectOEP  → o plugin devolve o OEP real
-4. SetBreakpoint no OEP → run → pausa no código original
-5. DumpModule (dump completo com IAT)  ou  DumpMemory na região
-6. AnalyzeModule no dump → reconstrói imports
-7. Salve em unpacked/ e registre o comando em evidence/
+4. Pare no OEP com breakpoint de HARDWARE:  SetHardwareBreakpoint <OEP>
+   → run → pausa no código original
+5. Confira os MÓDULOS no ponto de parada:  ListModules
+   (quem carrega as DLLs do alvo é o stub: no EP a lista tem 4 módulos, no OEP tem 17 —
+   reconstruir a IAT com a lista curta dá uma tabela de imports errada)
+6. DumpModule (dump completo com IAT)  ou  DumpMemory na região
+7. AnalyzeModule no dump → reconstrói imports
+8. Salve em unpacked/ e registre o comando em evidence/
+```
+
+**Breakpoint: hardware por padrão enquanto a seção pode mudar.** Um breakpoint de
+**software** grava `int3` (`0xCC`) **na memória** do alvo; se o stub do packer ainda vai
+decriptar/escrever naquela seção, o debugger guarda o byte que estava lá *naquele momento*
+(o cifrado) e, ao parar, "restaura" o byte **pré-decriptação** — o dump sai com **uma
+instrução trocada**, o loader aceita o arquivo e o programa morre depois, dentro do CRT.
+O breakpoint de **hardware** (`SetHardwareBreakpoint`, DR0-DR3) não escreve nada na memória,
+então não há o que restaurar errado: é o caminho padrão do passo 4 e de qualquer parada em
+código que o packer ainda pode reescrever.
+
+| | Quando usar | Custo/limite real (medido) |
+|---|---|---|
+| **Hardware** (`SetHardwareBreakpoint`) | **padrão** para parar em código que o stub ainda pode escrever (o OEP típico) | DR0-DR3 = **4** por thread. O 5º **não** arma: o x64dbg responde `Hardware breakpoint set.` e descarta o endereço em silêncio — por isso `x64dbg-drive.mjs --hw-break` confere o `ListBreakpoints` e **falha (exit 1)** se o endereço não entrou |
+| **Software** (`SetBreakpoint`) | só **depois** que a seção está no estado final (ex.: parar dentro do código já decifrado) | sem limite de quantidade; deixa `0xCC` na memória |
+| `RunToAddress` (`--run-to`) | ir a um ponto cujo código já está no estado final | é um breakpoint **temporário de software** por baixo — vale a mesma restrição; entra no log como `sw-temp` |
+
+**Sessão limpa não é o que parece.** O x64dbg persiste breakpoints **por módulo** em
+`x64dbg/release/x64/db/<módulo>.dd64`, e eles **voltam armados na carga seguinte** (os de
+software *e* os de hardware: medido — depois de reiniciar o x64dbg, a lista continuava com os
+4 anteriores). Um breakpoint de uma rodada anterior pode, portanto, contaminar a captura de
+hoje. A receita de captura confiável, medida:
+
+```powershell
+# 1. feche o debugger
+.\scripts\start-x64dbg.ps1 -Stop
+# 2. apague o banco do MÓDULO-alvo (não o dos módulos de sistema)
+Remove-Item .\x64dbg\release\x64\db\acme.exe.dd64, .\x64dbg\release\x64\db\acme.exe.dd64.cmdline
+# 3. reabra e confirme ANTES de capturar: tem de dizer "No breakpoints set."
+.\scripts\start-x64dbg.ps1
+node scripts/x64dbg-drive.mjs --list-breaks
+```
+
+A mesma captura pela ponte MCP (o `--bp-log` é o que o passo 12 consome; sem ele, o modo sem
+original não sabe onde procurar):
+
+```bash
+node scripts/x64dbg-drive.mjs --load work/acme/src/acme.exe \
+     --run-to "<EP>" --modules --state \
+     --hw-break "<OEP>" --bp-log evidence/bps.jsonl \
+     --modules --dump-module acme unpacked/acme-dump.exe
+#                             ^ o 1º --modules é no EP (lista curta, só para ter o mapa);
+#                               o 2º é no ponto de parada — é ESSA lista que o rebuild-iat quer
 ```
 
 **Ordem obrigatória:** OEP → dump → **reparo de IAT** → **estado de carga**. Dump sem IAT
 reparada abre no Ghidra com imports lixo e a análise estática vira ruído.
 
-Um dump **de memória** (passo 5) carrega o estado da execução que o gerou, e o loader do
+Um dump **de memória** (passo 6) carrega o estado da execução que o gerou, e o loader do
 Windows exige imagem em estado de carga **limpo** — por isso o arquivo pode ser recusado
 antes de qualquer código rodar (`0xC000007B` e afins). Não é o fim e nem sempre é a IAT:
 
 ```
-8. O Windows recusou o dump reconstruído? Meça o motivo em vez de adivinhar:
+9. O Windows recusou o dump reconstruído? Meça o motivo em vez de adivinhar:
      node scripts/diagnose-load.mjs unpacked/acme-unpacked.exe
-9. Se o diagnóstico acusar estado de carga (o `__security_cookie` já randomizado pela
+10. Se o diagnóstico acusar estado de carga (o `__security_cookie` já randomizado pela
    execução anterior), reponha o sentinela — o script escreve no endereço que o próprio
    LOAD_CONFIG do alvo declara:
      node scripts/reset-load-state.mjs --dump unpacked/acme-unpacked.exe        # dry-run
      node scripts/reset-load-state.mjs --dump unpacked/acme-unpacked.exe \
           --out unpacked/acme-unpacked-loadstate.exe
-10. Tem o original EM CLARO (a mesma build obtida por outro caminho)? Então compare — é o
+11. Tem o original EM CLARO (a mesma build obtida por outro caminho)? Então compare — é o
     teste mais forte que existe e o único que denuncia byte escrito por engano no dump:
       node scripts/verify-dump.mjs --dump unpacked/acme-unpacked.exe --original acme.exe
     Ele reloca o original para a base do dump e classifica CADA byte diferente: IAT (o
@@ -78,23 +126,49 @@ antes de qualquer código rodar (`0xC000007B` e afins). Não é o fim e nem semp
     tem, com o endereço exato para investigar. Além de achar o problema, ele também
     confirma o que **não** é problema: `.text` idêntico ao original é a prova de que o
     unpack saiu limpo.
+12. NÃO tem original (crackme, alvo comercial: é a regra no round 8 em diante)? Então o
+    passo 11 é impossível e o veredito passa a ser MODO FRACO. Passe o que foi carregado no
+    debugger e o log de breakpoints da captura:
+      node scripts/verify-dump.mjs --dump unpacked/acme-unpacked.exe \
+           --packed src/acme.exe --bp-log evidence/bps.jsonl
+    Três marcas, e o que cada uma vale: (1) resíduo de `0xCC` em seção executável —
+    **indício**, o padding do MSVC também é `0xCC`; vira **forte** se o endereço está no log
+    da captura; (2) **byte parado no tempo** — nos endereços do log, o byte do dump ainda é
+    o do arquivo EMPACOTADO com a seção reescrita: é o defeito desta rodada, exatamente;
+    (3) faixa de 8+ bytes ainda cifrada dentro de uma seção reescrita. Ele **não vê** byte
+    trocado por valor plausível em endereço sem breakpoint — **este modo não prova que o
+    dump está limpo**, só pega as marcas conhecidas. `--original` continua sendo o teste
+    forte; este é o substituto quando não existe.
 ```
 
 O mecanismo (qual checagem do `ntdll` reprova, com registrador e valor medidos) está em
 [../reports/root-cause-0xc000007b.md](../reports/root-cause-0xc000007b.md) §8 — leia antes
 de procurar defeito na IAT que você acabou de reconstruir.
 
-**Armadilha medida (custou uma rodada inteira do caso iat-hardcase):** breakpoint de
-**software** em `.text` **antes** de o stub decriptar a seção. O debugger grava o `int3` no
-byte, o stub decripta por cima e, quando o alvo para no breakpoint, o debugger "restaura" o
-byte *pré-decriptação* — o dump sai com **uma instrução trocada** (`0x48` → `0x51`, medido),
-o loader **aceita** o arquivo e o programa morre depois, dentro do CRT. Prefira breakpoint de
-**hardware** (`SetHardwareBreakpoint`, que não escreve na memória), ou só ponha breakpoint de
-software depois que a seção estiver em claro. O passo 10 é o que pega esse caso.
+**Armadilha medida — e tratada por padrão (custou uma rodada inteira do caso iat-hardcase).**
+O defeito era um breakpoint de **software** em `.text` **antes** de o stub decriptar a seção:
+o debugger gravou o `int3` no byte, o stub decriptou por cima e, ao parar, o debugger
+"restaurou" o byte *pré-decriptação* — o dump saiu com **uma instrução trocada** (`0x48` →
+`0x51`, medido em RVA `0x1f98`), o loader **aceitou** o arquivo e o programa morreu depois,
+dentro do CRT. O que mudou para não repetir:
+
+* o passo 4 passou a ser **breakpoint de hardware por padrão** (não escreve na memória, logo
+  não tem byte a restaurar errado) — e a limitação real (4 slots DR0-DR3, o 5º descartado em
+  silêncio) está no quadro acima, conferida pelo próprio driver, não só documentada;
+* a captura passou a **gravar o log dos breakpoints** (`--bp-log`), que é o que dá dentes ao
+  passo 12 quando não existe original;
+* o passo 12 **detecta** o bug sem original em claro: nos endereços do log, byte igual ao
+  arquivo empacotado dentro de uma seção reescrita = byte parado no tempo;
+* e a persistência do banco `.dd64` (breakpoint de rodada anterior voltando armado) virou
+  parte do procedimento, com a checagem `--list-breaks` antes de capturar.
+
+Provas de 2026-10-14 (comando + saída): reprodução do bug com breakpoint de software, a mesma
+captura com hardware saindo correta sem patch manual, e o modo fraco pegando o mesmo byte —
+em [../reports/verification-2026-10-14.md](../reports/verification-2026-10-14.md) §9.
 
 **Critério de pronto:** o dump abre no Ghidra, tem `GetProcAddress`/imports plausíveis,
 uma das strings originais aparece em `strings`/`GetStrings` e — quando ele veio de memória,
-passos 5–10 — o **loader do Windows o aceita** e o alvo **roda até o fim como o original**
+passos 6–12 — o **loader do Windows o aceita** e o alvo **roda até o fim como o original**
 (roda fora do debugger; `diagnose-load.mjs` mede o status, `verify-dump.mjs` mede o que
 sobrou de diferente). O que o debugger carrega não prova isso: quem mapeia no `LoadLibrary`
 do x64dbg não é o mesmo caminho do `CreateProcess`.

@@ -74,14 +74,22 @@ LoadBinary      work/acme/src/target.exe
 RunToAddress    <entrypoint>
 StepOver                          // até o salto final do stub
 DetectOEP                         // devolve o OEP real
-SetBreakpoint   <oep>
+SetHardwareBreakpoint <oep>       // HARDWARE: não escreve na memória (ver abaixo)
 run                               // pausa no código original
+ListModules                       // NO PONTO DE PARADA: é o stub que carrega as DLLs do alvo
 DumpModule      target_dump.exe   // dump completo com IAT
 AnalyzeModule   target_dump.exe   // reconstrói imports no dump
 ```
 
 > **Ordem obrigatória:** OEP → dump → reparo de IAT. Dump sem IAT abre no Ghidra com
 > imports lixo e a análise estática vira ruído.
+>
+> **Breakpoint de software em código ainda cifrado corrompe o dump:** o `int3` (`0xCC`) é
+> gravado na memória e, quando o stub decripta por cima e o alvo para, o debugger “restaura” o
+> byte pré-decriptação. Use `SetHardwareBreakpoint` (DR0-DR3: **4** por thread; o 5º o x64dbg
+> descarta em silêncio) enquanto a seção pode mudar, e `SetBreakpoint` só depois que ela está no
+> estado final. O passo a passo com as provas medidas está em
+> [../06-workflows.md](../06-workflows.md) Cenário 1.
 
 **Patching responsável:** patche a **cópia** em `unpacked/`, nunca `src/`. Antes de
 patchar, anote os bytes originais e o endereço; depois, use `RestorePatches` para voltar

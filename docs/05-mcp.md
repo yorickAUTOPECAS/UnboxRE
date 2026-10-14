@@ -103,6 +103,13 @@ conectar → o plugin não carregou (pasta `plugins/` inexistente — G4).
 O catálogo completo (72–84 tools) está no README do próprio plugin:
 [../x64dbg-mcp-server-main/README.md](../x64dbg-mcp-server-main/README.md).
 
+**Ao parar em código que o packer ainda pode reescrever, use `SetHardwareBreakpoint`, não
+`SetBreakpoint`:** o breakpoint de software grava `int3` (`0xCC`) na memória e, ao parar, o
+debugger devolve o byte *pré-modificação* — o dump sai com uma instrução trocada (medido). O
+hardware (DR0-DR3, **4** por thread) não escreve nada; o 5º é descartado em silêncio, então
+confira o `ListBreakpoints` depois de cada um (`scripts/x64dbg-drive.mjs --hw-break` já confere e
+falha se não foi armado). Passo a passo: [06-workflows.md](06-workflows.md) Cenário 1.
+
 ### 2.4 Config por cliente
 
 **Streamable HTTP (recomendado):**
