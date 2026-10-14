@@ -53,11 +53,51 @@ Se não for UPX puro (stub modificado), vá pelo debugger:
 7. Salve em unpacked/ e registre o comando em evidence/
 ```
 
-**Ordem obrigatória:** OEP → dump → **reparo de IAT**. Dump sem IAT reparada abre no
-Ghidra com imports lixo e a análise estática vira ruído.
+**Ordem obrigatória:** OEP → dump → **reparo de IAT** → **estado de carga**. Dump sem IAT
+reparada abre no Ghidra com imports lixo e a análise estática vira ruído.
+
+Um dump **de memória** (passo 5) carrega o estado da execução que o gerou, e o loader do
+Windows exige imagem em estado de carga **limpo** — por isso o arquivo pode ser recusado
+antes de qualquer código rodar (`0xC000007B` e afins). Não é o fim e nem sempre é a IAT:
+
+```
+8. O Windows recusou o dump reconstruído? Meça o motivo em vez de adivinhar:
+     node scripts/diagnose-load.mjs unpacked/acme-unpacked.exe
+9. Se o diagnóstico acusar estado de carga (o `__security_cookie` já randomizado pela
+   execução anterior), reponha o sentinela — o script escreve no endereço que o próprio
+   LOAD_CONFIG do alvo declara:
+     node scripts/reset-load-state.mjs --dump unpacked/acme-unpacked.exe        # dry-run
+     node scripts/reset-load-state.mjs --dump unpacked/acme-unpacked.exe \
+          --out unpacked/acme-unpacked-loadstate.exe
+10. Tem o original EM CLARO (a mesma build obtida por outro caminho)? Então compare — é o
+    teste mais forte que existe e o único que denuncia byte escrito por engano no dump:
+      node scripts/verify-dump.mjs --dump unpacked/acme-unpacked.exe --original acme.exe
+    Ele reloca o original para a base do dump e classifica CADA byte diferente: IAT (o
+    loader preenche), LOAD_CONFIG/TLS, estado de carga (cookie) — e o que sobra vai para
+    `CODIGO` (seção executável) ou `dados`. `CODIGO` é defeito: instrução que o original não
+    tem, com o endereço exato para investigar. Além de achar o problema, ele também
+    confirma o que **não** é problema: `.text` idêntico ao original é a prova de que o
+    unpack saiu limpo.
+```
+
+O mecanismo (qual checagem do `ntdll` reprova, com registrador e valor medidos) está em
+[../reports/root-cause-0xc000007b.md](../reports/root-cause-0xc000007b.md) §8 — leia antes
+de procurar defeito na IAT que você acabou de reconstruir.
+
+**Armadilha medida (custou uma rodada inteira do caso iat-hardcase):** breakpoint de
+**software** em `.text` **antes** de o stub decriptar a seção. O debugger grava o `int3` no
+byte, o stub decripta por cima e, quando o alvo para no breakpoint, o debugger "restaura" o
+byte *pré-decriptação* — o dump sai com **uma instrução trocada** (`0x48` → `0x51`, medido),
+o loader **aceita** o arquivo e o programa morre depois, dentro do CRT. Prefira breakpoint de
+**hardware** (`SetHardwareBreakpoint`, que não escreve na memória), ou só ponha breakpoint de
+software depois que a seção estiver em claro. O passo 10 é o que pega esse caso.
 
 **Critério de pronto:** o dump abre no Ghidra, tem `GetProcAddress`/imports plausíveis,
-e uma das strings originais aparece em `strings`/`GetStrings`.
+uma das strings originais aparece em `strings`/`GetStrings` e — quando ele veio de memória,
+passos 5–10 — o **loader do Windows o aceita** e o alvo **roda até o fim como o original**
+(roda fora do debugger; `diagnose-load.mjs` mede o status, `verify-dump.mjs` mede o que
+sobrou de diferente). O que o debugger carrega não prova isso: quem mapeia no `LoadLibrary`
+do x64dbg não é o mesmo caminho do `CreateProcess`.
 
 ---
 

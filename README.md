@@ -142,6 +142,7 @@ Automação:
 | [scripts/x64dbg-drive.mjs](scripts/x64dbg-drive.mjs) | Dirige o x64dbg pela ponte MCP, sem clicar na GUI: load, breakpoint, `ReadMemory`, `GetMemoryMap`, `DumpModule` |
 | [scripts/rebuild-iat.mjs](scripts/rebuild-iat.mjs) | Equivalente headless do *Fix Dump* do Scylla: acha a IAT num dump de memória, resolve cada slot (nome/ordinal) e escreve a tabela nova |
 | [scripts/reset-load-state.mjs](scripts/reset-load-state.mjs) | Tira um dump de memória do estado de execução: repõe o `__security_cookie` no sentinela que o loader exige, senão a imagem é recusada com `0xC000007B` |
+| [scripts/verify-dump.mjs](scripts/verify-dump.mjs) | Compara o dump reconstruído com o **original em claro** (relocando o original para a base do dump) e classifica cada byte diferente: IAT/LOAD_CONFIG/TLS (o loader preenche), estado de carga (cookie) — e `CODIGO`/`dados`, que é o que se investiga |
 | [scripts/make-packed-sample.mjs](scripts/make-packed-sample.mjs) | Fabrica um alvo empacotado de estudo (XOR do código, IAT por DLL, salto EP → stub → OEP) a partir de um PE que roda |
 | [scripts/load-snaps.ps1](scripts/load-snaps.ps1) | Liga/desliga *loader snaps* (o efeito de `gflags /i app.exe +sls`) para ver a decisão do loader — exige shell elevado |
 | [scripts/capture-debugprint.ps1](scripts/capture-debugprint.ps1) | Listener do canal `DBWIN_BUFFER` (saída de depuração de alvos fora do debugger), sem DebugView e sem GUI — validado por auto-teste |

@@ -295,6 +295,7 @@ Além do Ghidra, o que falta para análise estática *profissional e scriptável
 |---|---|---|---|
 | **UPX** | desempacotar UPX (`-d`); detectar com DIE | `$ upx -d packed.exe -o unpacked.exe` | `GPL-2.0` |
 | **Scylla** | **reconstruir IAT** após unpack manual (já no x64dbg como plugin) | no x64dbg: menu Scylla → IAT Autosearch → Get Imports → Dump | `GPL-3.0` |
+| **`rebuild-iat.mjs` + `verify-dump.mjs`** (deste toolkit) | equivalente **headless** e auditável do *Fix Dump*, mais a verificação que o Scylla não faz: compara o resultado com o original em claro (relocando o original para a base do dump) e separa "o loader preenche" de "defeito" | `node scripts/rebuild-iat.mjs --dump … --out …` e depois `node scripts/verify-dump.mjs --dump … --original …` | `MIT` |
 | **x64dbg `DetectOEP`** | acha o OEP de packer (já instalado) | MCP: `DetectOEP` → `SetBreakpoint` no OEP → `DumpModule` | `GPL-3.0` |
 | **unpacker scripts** | scripts de unpack específicos por packer (Themida/VMProtect são *difíceis*) | usar os do x64dbg Script Store em `work/<alvo>/scripts/` | variada |
 | **VMProtect/Themida/Enigma** | `[COMERCIAL]` protetores — **sem** unpacker aberto confiável; abordagem é devirtualização parcial + análise de IAT/OEP | ver c.4 | — |
@@ -302,7 +303,13 @@ Além do Ghidra, o que falta para análise estática *profissional e scriptável
 **Fluxo canônico de unpack** (detalhado em [06-workflows.md](06-workflows.md)):
 `DIE` → confirma packer → `x64dbg` → anti-anti-debug (`ScyllaHide`) → `DetectOEP` →
 breakpoint no OEP → `DumpModule` → `Scylla` para IAT → valida no DIE de novo (deve
-agora dizer "não empacotado").
+agora dizer "não empacotado") → **e o dump tem de rodar fora do debugger**, não só abrir no
+Ghidra: `diagnose-load.mjs` (o loader aceita?), `reset-load-state.mjs` (estado de carga) e,
+se houver o original em claro, `verify-dump.mjs` (byte a byte). Duas armadilhas medidas neste
+caminho, com evidência em [../reports/unpack-iat-hardcase.md](../reports/unpack-iat-hardcase.md):
+breakpoint de **software** antes de o stub decriptar (o debugger restaura o byte pré-decriptação)
+e **descritor de import com passo errado** (se o passo não for 20 bytes, o loader lê o #0 e para —
+os outros módulos nem carregam).
 
 ### c.2 Anti-debug / anti-VM / anti-tamper
 

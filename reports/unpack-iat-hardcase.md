@@ -1,7 +1,11 @@
 # Caso “duro” — OEP → dump de memória → reconstrução da IAT (sem restore automático)
 
-**Status:** parcialmente provado. Tudo abaixo foi medido; a seção [6](#6-o-que-ainda-não-funciona-o-arquivo-reconstruído-é-rejeitado-pelo-loader)
-separa o que **não** funciona.
+**Status:** **fechado** (2026-10-14). O alvo reconstruído pelo toolkit — dump de memória →
+IAT reconstruída → estado de carga → EP — **roda até o fim e sai com o mesmo status do
+original** (4/4 execuções, §6.4). A seção
+[6](#6-o-que-ainda-não-funciona-o-arquivo-reconstruído-é-rejeitado-pelo-loader) guarda o
+histórico do que falhava (loader recusando o dump) e o §6.4 fecha cada causa com comando e
+saída. O que **não** foi exercitado continua listado em §6.5.
 
 Pré-requisitos: Rust (`rustc`), x64dbg aberto com o plugin MCP
 (`.\scripts\start-x64dbg.ps1`) e Node 18+. Nada aqui usa `sudo`.
@@ -277,6 +281,130 @@ captura — era estado de carga. O `0xC0000005` que sobra é outro problema: o E
 **stub** do packer, que reexecuta sobre memória já desempacotada. Apontar o EP para o OEP é o
 próximo passo deste caso, e não foi feito nesta rodada.
 
+### 6.4 Fechado: o EP **já era** o OEP — o que faltava era um byte do dump e um bug do script
+
+A rodada partiu da hipótese “o EP aponta para o stub; reaponte para o OEP”. Medição antes da
+hipótese (`evidence/20261014-70-ep-e-oep.txt`):
+
+| arquivo | EP no cabeçalho | bytes em RVA 0x19C0 (o EP) | `.text` vs original |
+|---|---|---|---|
+| `src/clean.hardcase.exe` (empacotado) | `0x19c0` | `e9 3b 86 05 00 90 90 90` = `jmp 0x5a000` (stub) | 157051 byte(s) (cifrado) |
+| `unpacked/dump-raw.exe` | `0x19c0` | `48 83 ec 28 e8 cf 05 00` = código ORIGINAL | **1** byte |
+| `unpacked/dump-fixed.exe` / `…-loadstate.exe` | `0x19c0` | idem | **1** byte |
+| `unpacked/dump-fixed3.exe` / `dump-final3.exe` | `0x19c0` | idem | **0** byte(s) |
+| `clean.exe` original (= `notepad.exe` do sistema, sha256 idêntico) | `0x19c0` | `48 83 ec 28 e8 cf 05 00` | — |
+
+`AddressOfEntryPoint` é 0x19C0 **em todos**. No arquivo empacotado é 0x19C0 que aponta para o
+stub — por um `jmp` no próprio EP; o stub restaura ali os 8 bytes originais e salta para o
+mesmo endereço. O dump já contém a versão restaurada: **não havia EP para reapontar.** Com
+símbolos (`cdb`, `notepad.pdb`): `ln $exentry` → `notepad!wWinMainCRTStartup`, e o `call` de
+`+0x4` vai para `notepad!_security_init_cookie` — código de CRT normal, não stub.
+
+#### (a) O dump carregava UMA instrução trocada — e o loader a aceitava
+
+O `.text` do dump diferia do original em **exatamente 1 byte**, em RVA `0x1F98`:
+`0x48` → `0x51` (`mov [rsp+18h], rbx` virava `push rcx`), o mesmo endereço do
+**breakpoint de software do dump** (`SetBreakpoint 0x7FF77BE21F98`, §3). O byte no arquivo
+empacotado ali é `0x51` e o keystream do stub naquela posição é `0x19` — o dump guardou o byte
+**ainda cifrado** (`0x51 = 0x48 ^ 0x19`), não o decifrado. Mecanismo: o breakpoint foi escrito
+antes de o stub decriptar a seção; ao parar, o debugger restaurou o byte que tinha salvado
+(o *pré*-decriptação).
+
+Consequência exata, medida com traçagem (`evidence/20261014-49/50`):
+
+```
+notepad!_security_init_cookie:  ... mov [rsp+18h],rbx  (esperado)
+                                ... push rcx          (no dump)
+  → o epílogo faz `pop rbp; ret` e o `ret` desempilha o rcx empilhado a mais
+  → rip = 0x000000ed`60847000 (memória livre), [rsp] = notepad!wWinMainCRTStartup+0x9
+```
+
+O loader **aceitava** a imagem (cookie já corrigido) e o programa morria com `0xC0000005`
+dentro do CRT. O `verify-dump.mjs` (novo, §6.5) aponta esse byte como `CODIGO` com o endereço.
+Reposto o byte (`0x48`), o `.text` fica **byte a byte idêntico ao original**.
+
+#### (b) Bug no `rebuild-iat.mjs`: descritores com passo de 24 bytes
+
+O loader só processava o **primeiro** descritor de import. Motivo medido
+(`evidence/20261014-71-descriptor-passo.txt`): o script alinhava cada descritor a 8 bytes, e
+`IMAGE_IMPORT_DESCRIPTOR` tem **20** — o passo virava 24 e o loader, que avança 20 por entrada,
+lia no #1 um `Name == 0` e parava ali:
+
+```
+#0 @0x5c948  OFT=0x5c000  Name=comctl32.dll                        FT=0x298d8
+#1 @0x5c95c  OFT=0x0      Name=<Name=0 -> o loader PARA aqui>        FT=0x5ca2a   ← lixo do alinhamento
+```
+
+Efeito: só o comctl32 era resolvido; os outros 7 blocos ficavam com os endereços do processo
+que gerou o dump. `combase.dll` nem aparecia em `lm` (`evidence/20261014-55`), e a primeira
+chamada que dependia dela morria: `call qword ptr [_imp_CoCreateGuid]` → memória livre.
+Corrigido (o alinhamento vale para a tabela, não para cada entrada), o loader passou a carregar
+`combase`, `RPCRT4`, `gdi32`… (`evidence/20261014-58`).
+
+#### (c) Bug no `rebuild-iat.mjs`: descritor por DLL em vez de por corrida contígua
+
+Segundo defeito, achado pelo mesmo caminho: um descritor declara uma faixa **contígua** de
+`FirstThunk`; agrupar por DLL só funciona se todos os slots daquela DLL forem vizinhos. Não
+são — cada DLL de contrato `api-ms-win-*` é um descritor próprio no arquivo original e todas
+resolvem no mesmo host, então uma DLL real aparece em **várias** corridas. Com um descritor por
+DLL, o loader escrevia `kernelbase` por cima dos slots de `kernel32`:
+
+```
+0x0fb703  movzx eax, word ptr [rbx]      ; rbx = 0
+  ← `call qword ptr [_imp_GetCommandLineW]` devolveu 0 (o slot tinha outra função)
+```
+
+Corrigido (um descritor por corrida contígua), o alvo passou a atravessar `wWinMain`, carregar
+uxtheme/bcryptPrimitives/kernel.appcore e **sair 0** (§6.4(d)).
+
+#### (d) Resultado: o dump roda como o original
+
+```
+$ powershell -File work/iat-hardcase/scripts/run-and-probe.ps1 -Target unpacked/dump-final3.exe
+exited : sim  (ExitCode=0 = 0x0)                     ← 4/4 execuções
+$ powershell -File … -Target ../packer-demo/clean.exe
+exited : sim  (ExitCode=0 = 0x0)                     ← o original, 3/3
+```
+
+Comando total do caminho canônico (do dump cru ao alvo rodando):
+
+```
+node scripts/rebuild-iat.mjs --dump unpacked/dump-raw-bpfix.exe --out unpacked/dump-fixed4.exe \
+     --modules evidence/20261013-3-modules-do-debugger.txt --mem evidence/mem --oep 0x19c0
+node scripts/reset-load-state.mjs --dump unpacked/dump-fixed4.exe --out unpacked/dump-final4.exe
+node scripts/verify-dump.mjs --dump unpacked/dump-fixed4.exe --original ../packer-demo/clean.exe
+powershell -File ./scripts/run-and-probe.ps1 -Target unpacked/dump-final4.exe   # exit 0
+```
+
+Cobertura da IAT, artefato por artefato (`evidence/20261014-72-iat-cobertura.txt`) — “slot
+estaleiro” = 8 bytes na faixa do data directory IAT apontando para um módulo:
+
+| artefato | slots estaleiros | declarados pelos descritores | falta |
+|---|---|---|---|
+| `dump-fixed.exe` (rodada anterior) | 311 | 155 | **156** |
+| + passo 20 e corridas contíguas | 311 | 289 | 22 |
+| + rota derivada da faixa (3ª rota) | 315 | 315 | **0** |
+
+#### 6.5 O que continua **não** exercitado (honesto)
+
+* **`0x28011` (`fothk`, 4 bytes)** — um thunk `jmp` que o programa **re-escreve em runtime**,
+não resíduo do stub: medido com `ba w4` que o original **também** escreve ali, e o alvo do salto
+é `SizeOfImage + 0xC0` nos dois (`evidence/20261014-63/64`). O `verify-dump.mjs` o reporta como
+`CODIGO` porque a seção é marcada executável — é o caso legítimo (b) da mensagem dele.
+* **~3,4 KB em `.rdata`/`.data`** que o processo de origem tinha como VA onde o original tem RVA
+(tabelas convertidas em runtime, ~1300 campos). Uma reexecução que **não** passe por esses
+caminhos roda; um caminho mais longo que os use pode falhar. Fica listado byte a byte pelo
+`verify-dump.mjs` — nada em silêncio.
+* **2 slots sem resolução** (`0x2a450`, fora da faixa da IAT, e `0x390a8`, na IAT de *delay
+import*). A IAT de delay continua com o estado da execução: ela não é preenchida pelo loader,
+e sim pelo `__delayLoadHelper2` no primeiro uso — o caminho exercitado não a tocou.
+* **Scylla pela GUI** continua **não executado** (o plugin não tem CLI; a GUI exige interação).
+O `rebuild-iat.mjs` é o equivalente headless declarado do *Fix Dump* e agora passa a
+verificação byte a byte contra o original — mas isso não substitui rodar a ferramenta canônica.
+* O comportamento do original nesta máquina é **lançar o Notepad empacotado e sair 0** (é um
+stub); logo o critério de “mesma saída” aqui é *exit status + nenhuma exceção + `.text`
+idêntico*, não uma comparação de janelas/output do programa completo.
+
 ## 7. Reproduzir
 
 ```console
@@ -295,7 +423,19 @@ $ node scripts/reset-load-state.mjs --dump work/iat-hardcase/unpacked/dump-fixed
 $ node scripts/reset-load-state.mjs --dump work/iat-hardcase/unpacked/dump-fixed.exe \
       --out work/iat-hardcase/unpacked/dump-fixed-loadstate.exe
 $ node scripts/diagnose-load.mjs work/iat-hardcase/unpacked/dump-fixed-loadstate.exe
+
+# 5) verificação contra o original (a mesma build em claro) e comportamento
+$ node scripts/verify-dump.mjs --dump work/iat-hardcase/unpacked/dump-fixed4.exe \
+      --original work/packer-demo/clean.exe
+$ powershell -File work/iat-hardcase/scripts/run-and-probe.ps1 -Target work/iat-hardcase/unpacked/dump-final4.exe
+
+# ANTES do passo 4, o dump cru tem de ter o byte do breakpoint de software reposto:
+#   rva 0x1f98: 0x51 (cifrado) -> 0x48 (`mov [rsp+18h], rbx`) — ver §6.4(a).
+#   O certo, na captura, é usar breakpoint de HARDWARE em .text (§6.4(a)); o byte acima é
+#   o conserto do artefato já capturado: work/iat-hardcase/unpacked/dump-raw-bpfix.exe
 ```
 
 Artefatos (todos fora do Git, em `work/`): `src/clean.hardcase.exe`, `unpacked/dump-raw.exe`,
-`unpacked/dump-fixed.exe`, `evidence/20261013-*.{json,txt}`, `evidence/mem/*.bin`.
+`unpacked/dump-raw-bpfix.exe`, `unpacked/dump-fixed*.exe`, `unpacked/dump-final*.exe`,
+`evidence/20261013-*.{json,txt}`, `evidence/mem/*.bin`, `evidence/20261014-*.txt`,
+`scripts/run-and-probe.ps1` (harness de comportamento).

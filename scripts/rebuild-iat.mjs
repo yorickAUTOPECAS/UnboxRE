@@ -316,7 +316,26 @@ for (const s of sections) {
     } else run = 0;
   }
 }
-const slots = [...new Set([...fromThunks, ...fromRuns])].sort((a, c) => a - c);
+const slotSet = new Set([...fromThunks, ...fromRuns]);
+// Terceira rota, derivada das duas anteriores: dentro da faixa [primeiro, último] slot já
+// encontrado, todo endereço de 8 bytes que aponte para DENTRO de um módulo conhecido é
+// candidato a slot de IAT. É o que pega a entrada que as outras duas rotas perdem (slot
+// isolado entre blocos de outra DLL, ponteiro para módulo fora da lista do debugger, por
+// exemplo). Medido no caso iat-hardcase: 0x29cc8 e 0x29d28 (IAT em `.rdata`) ficavam com o
+// endereço do processo que gerou o dump porque nenhum thunk direto e nenhum bloco de 3 os
+// alcançava. A resolução por export depois filtra o que não for import.
+{
+  const found = [...slotSet].sort((a, c) => a - c);
+  const lo = found[0], hi = found[found.length - 1];
+  for (let rva = lo; rva + 8 <= hi; rva += 8) {
+    if (slotSet.has(rva)) continue;
+    const off = rva2off(rva);
+    if (off < 0 || off + 8 > b.length) continue;
+    const v = b.readBigUInt64LE(off);
+    if (v > 0x10000n && !inSelf(v) && modOf(v)) slotSet.add(rva);
+  }
+}
+const slots = [...slotSet].sort((a, c) => a - c);
 if (!slots.length) die("não achei nenhuma IAT (nenhum thunk direto e nenhum bloco de ponteiros para módulos)");
 
 // ── 2. resolver cada slot: módulo + nome/ordinal ────────────────────────────
@@ -357,25 +376,33 @@ const bySlot = new Map(resolved.map((r) => [r.slotRva, r]));
 const orderedSlots = [...bySlot.values()].sort((a, c) => a.slotRva - c.slotRva);
 
 // ── 3. montar a tabela nova numa seção nova ─────────────────────────────────
-// Ordem dos descritores: por módulo, na ordem em que o primeiro slot aparece. Os slots de
-// cada módulo são escritos na posição ORIGINAL (FirstThunk = slot), então blocos
-// intercalados continuam corretos — o loader preenche cada endereço no lugar certo.
-const moduleOrder = [];
-const perModule = new Map();
+// Ordem dos descritores: um descritor por CORRIDA CONTÍNUA de slots, na ordem em que ela
+// aparece. Um `IMAGE_IMPORT_DESCRIPTOR` declara uma faixa CONTÍGUA de `FirstThunk`
+// (`FirstThunk + 8*i`) e o loader preenche na ordem da ILT — logo, agrupar por DLL só
+// funciona se todos os slots daquela DLL forem vizinhos.
+//
+// Não são: no arquivo original cada DLL de contrato `api-ms-win-*` é um descritor PRÓPRIO
+// (com a sua faixa de slots) e todas resolvem no mesmo host, então uma DLL real aparece em
+// VÁRIAS corridas separadas. Medido no caso iat-hardcase: com um descritor por DLL, o
+// loader escrevia `kernelbase` por cima dos slots de `kernel32` (e vice-versa) e
+// `GetCommandLineW` passava a devolver 0 — o `movzx eax,[rbx]` de `wWinMain+0x113` dava AV
+// com `rbx = 0`. Cada corrida é um descritor; a mesma DLL em dois descritores é legal.
+const runs = [];
 for (const r of orderedSlots) {
-  const k = r.dll.toLowerCase();
-  if (!perModule.has(k)) {
-    perModule.set(k, { dll: r.dll, entries: [] });
-    moduleOrder.push(k);
+  const last = runs[runs.length - 1];
+  const lastSlot = last ? last.entries[last.entries.length - 1].slotRva : -8;
+  if (last && last.dll.toLowerCase() === r.dll.toLowerCase() && r.slotRva === lastSlot + 8) {
+    last.entries.push(r); // mesmo bloco do arquivo original (slots vizinhos, mesma DLL)
+  } else {
+    runs.push({ dll: r.dll, entries: [r] });
   }
-  perModule.get(k).entries.push(r);
 }
 
 const align = (n, a) => Math.ceil(n / a) * a;
 const newRva = align(sizeOfImage, secAlign);
 const newRaw = newRva; // layout de memória: rawptr == RVA
 let cursor = 0; // offsets relativos ao começo da seção nova
-const plan = moduleOrder.map((k) => ({ mod: perModule.get(k), dllName: perModule.get(k).dll }));
+const plan = runs.map((m) => ({ mod: m, dllName: m.dll }));
 const namesArea = [];
 for (const p of plan) {
   for (const e of p.mod.entries) namesArea.push({ e, nm: e.name ?? `#${e.ordinal}`, off: 0 });
@@ -389,13 +416,20 @@ for (const p of plan) {
   iltOff2.push(c2);
   c2 += p.mod.entries.length * 8 + 8;
 }
+// A tabela de descritores é uma ARRAY de `IMAGE_IMPORT_DESCRIPTOR` de 20 bytes, terminada
+// por um descritor nulo — o loader avança 20 bytes por entrada e PARA no primeiro com
+// `Name == 0`. Alinhar cada entrada a 8 (o que este laço fazia) cria um passo de 24 bytes:
+// o loader lê o descritor #0 e, em #1, cai no preenchimento (Name = 0) — ele para aí, os
+// outros módulos nunca são carregados e os slots ORIGINAIS ficam com os endereços do
+// processo que gerou o dump. Medido: era exatamente o AV restante do caso iat-hardcase
+// (só o comctl32 era resolvido; `combase` nem aparecia em `lm`). O alinhamento vale para a
+// tabela inteira, não para cada entrada.
 const descOff2 = [];
+c2 = align(c2, 8);
 for (const p of plan) {
-  c2 = align(c2, 8);
   descOff2.push(c2);
   c2 += 20;
 }
-c2 = align(c2, 8);
 const descEnd2 = c2;
 c2 += 20;
 const strOff2 = [];
