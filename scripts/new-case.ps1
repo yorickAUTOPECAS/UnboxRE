@@ -141,6 +141,12 @@ declaração de finalidade.
 ## Artefatos gerados
 
 Anote aqui os arquivos em ``unpacked/``, ``captures/`` e ``reports/``.
+
+Scripts DESTE caso vão em ``scripts/`` (ex.: ``solve-<alvo>.py``) — não confunda com os scripts
+do toolkit. Em Python, ajuste o encoding antes de imprimir símbolo: o ``stdout`` do Windows
+herda cp1252 e o ``print`` do desenho derruba o script NO MEIO da saída (ver
+``scripts/README.md`` §Convenções) — medido em duas rodadas seguidas (8.1, no script do toolkit;
+8.2, num script avulso do caso).
 "@
         Set-Content -LiteralPath $intakePath -Value $body -Encoding UTF8
         Add-Result 'intake' 'OK' "escrito work/$slug/notes/intake.md"

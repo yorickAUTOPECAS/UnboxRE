@@ -223,6 +223,17 @@ Registro de fricção **zero** aqui, de propósito: o que o 8.1 corrigiu foi exa
 rodada precisou (rodar o alvo com a candidata e ver a saída). O harness `--stdin` +
 `--stdin-file` funcionou de primeira, inclusive com bytes binários.
 
+### F6 — A convenção de encoding do Python não chegava a quem escreve script **do caso**
+
+**Momento:** no fim da rodada, um script avulso do caso (o próprio utilitário de editar a
+saída de evidência) morreu com `UnicodeEncodeError: 'charmap' codec can't encode character
+'\ufeff'` — o mesmo problema que o 8.1 consertou no script do **toolkit** e documentou em
+`scripts/README.md`. Quem escreve script de caso (`work/<alvo>/scripts/`) nunca passa por esse
+arquivo: o alerta existia no lugar errado.
+**Feito agora:** o template de `notes/intake.md` (criado por `new-case.ps1`) avisa onde o
+script do caso mora **e** da armadilha de encoding, apontando para a convenção. Verificado
+criando um caso de teste, lendo o intake gerado e removendo o caso.
+
 ### F5 — O `--refs` antigo escondia as referências que não são string
 
 Consequência direta do F2: o `refIndex` já continha TODO alvo RIP-relativo do código; o
@@ -240,6 +251,7 @@ impresso — a pior forma de lacuna, porque parece que a ferramenta não sabe. C
 | `scripts/triage-static.mjs` | detector de referências corrigido (prefixos `66`/`F2`/`F3` e opcode de dois bytes `0f xx`) + `--data-refs` com classificação e ordenação das constantes | F2, F5 |
 | `scripts/README.md` · `README.md` | os dois comportamentos novos no mapa de scripts | F1, F2 |
 | `docs/06-workflows.md` | Cenário 0: `pe-read.mjs` e `--data-refs` no passo de triagem; Cenário 12: critério **linear vs. não linear** (quando NÃO precisa de emulador) | F3 |
+| `scripts/new-case.ps1` | o template de `notes/intake.md` agora diz onde mora o script **do caso** e avisa da armadilha de encoding do `stdout` no Windows | F6 |
 | `reports/round-8-2-nivel-2.md` | este relatório | — |
 
 ## 7. O que NÃO funcionou, e o que continua em aberto (sem maquiagem)
