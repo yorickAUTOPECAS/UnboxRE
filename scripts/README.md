@@ -31,7 +31,7 @@ não quebra nada, e nada é instalado/compilado/copiado sem uma flag explícita
 | `rebuild-iat.mjs` | Node | equivalente headless do *Fix Dump* do Scylla: acha a IAT num dump de memória, resolve cada slot (nome/ordinal) e escreve uma seção `.idata2` nova | com `--out` |
 | `x64dbg-drive.mjs` | Node | dirige o x64dbg pelo MCP (load, breakpoint, `ReadMemory`, `GetMemoryMap`, `DumpModule`…) — a ponte scriptável entre o debugger e o caso em análise | conforme o comando |
 | `load-snaps.ps1` | Windows (elevado) | liga/desliga *loader snaps* (`FLG_SHOW_LDR_SNAPS`) para uma imagem — o efeito de `gflags /i app.exe +sls`, sem o gflags.exe | com `-Apply`, em shell elevado |
-| `capture-debugprint.ps1` | Windows | listener do canal `DBWIN_BUFFER` (OutputDebugString/DbgPrint) — é assim que se LÊ a saída do loader sinalizada por `load-snaps.ps1` | com `-OutFile` |
+| `capture-debugprint.ps1` | Windows | listener do canal `DBWIN_BUFFER` (OutputDebugString/DbgPrint) para alvos **fora** do debugger — validado por auto-teste; medido que ele **não** recebe *loader snaps* neste host (para snaps, leia a janela Log do x64dbg/WinDbg — ver [docs/tools/gflags.md](../docs/tools/gflags.md)) | com `-OutFile` |
 | `check-consistency.mjs` | Node | regressão offline: doc ↔ código ↔ licenças divergindo | não |
 | `verify-licenses.mjs` | Node (rede) | confere cada licença contra a fonte primária | não |
 | `smoke-mcp.mjs` | Node | handshake MCP real (initialize + tools/list) contra o REA | não |
