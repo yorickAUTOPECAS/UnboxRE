@@ -271,6 +271,7 @@ Além do Ghidra, o que falta para análise estática *profissional e scriptável
 
 - **O que faz:** liga o **`+sls` — “Show loader snaps”** (`FLG_SHOW_LDR_SNAPS = 0x02`): o loader do `ntdll` imprime cada passo da montagem da imagem (mapeamento, seções, imports, relocations, dependências e a decisão final).
 - **Quando usar:** **um `.exe` é recusado pelo Windows antes do entrypoint** (`0xC000007B`, `0xC0000135`, `0xC0000142`). Sem snaps só existe o sintoma — nada dentro do processo roda, logo não há backtrace nem log. Ver [../reports/root-cause-0xc000007b.md](../reports/root-cause-0xc000007b.md).
+  Se o alvo for um **dump de memória** (não um packer), o suspeito nº 1 é o **estado de carga**: o `__security_cookie` já randomizado faz `LdrInitSecurityCookie` devolver 0 e o loader reprovar a imagem — meça com `diagnose-load.mjs` e conserte com `scripts/reset-load-state.mjs`. A cadeia medida (breakpoint + registrador + valor) está no §8 do mesmo relatório.
 - **Como usar (sem instalar nada — o caminho que este toolkit usa):**
   ```powershell
   PS> .\scripts\diagnose-load.mjs alvo.exe                 # o que está torto no PE

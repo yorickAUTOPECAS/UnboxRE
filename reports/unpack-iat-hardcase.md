@@ -251,8 +251,31 @@ Process stopped with exit code 0x0 (0)
 criado pelo loader normal do Windows (medido em §5, `spawnSync` e `Start-Process -Wait`).
 Isso tira a conclusão do terreno “o arquivo está quebrado” e a põe em “a imagem passa
 quando quem mapeia é o debugger, e é recusada quando quem mapeia é o loader do SO” — que é
-exatamente a pergunta que os loader snaps respondem. Enquanto o texto dos snaps não é
-lido, a conclusão honesta é **não sei qual checagem do ntdll reprova**.
+exatamente a pergunta que os loader snaps respondem. Enquanto o texto dos snaps não era
+lido, a conclusão honesta era **não sei qual checagem do ntdll reprova**.
+
+### 6.3 A checagem está identificada — e o caso fechou (rodada de 2026-10-14, mesmo dia)
+
+A pergunta de §6.2 foi respondida por breakpoint no `ntdll` (símbolos do Microsoft Symbol
+Server), não por inferência: `ntdll!LdrpProcessMappedModule` → `ntdll!LdrInitSecurityCookie`
+exige que o `__security_cookie` da imagem ainda esteja no **sentinela do MSVC**
+(`0x00002B992DDFA232`) e devolve 0 caso contrário; com 0, o `LdrpProcessMappedModule` devolve
+`STATUS_INVALID_IMAGE_FORMAT`. Um dump de memória traz o cookie já randomizado pela execução
+anterior — é o “estado de execução” que o loader não aceita. Cadeia completa, com registradores
+e valores: [root-cause-0xc000007b.md](root-cause-0xc000007b.md) §8.
+
+A correção entrou no toolkit como `scripts/reset-load-state.mjs` (repõe o sentinela no
+endereço que o próprio `LOAD_CONFIG` declara), e o efeito é medido — 3 execuções de cada:
+
+| arquivo | saída | leitura |
+|---|---|---|
+| `unpacked/dump-fixed.exe` | `0xC000007B ×3` | loader recusa (antes) |
+| `unpacked/dump-fixed-loadstate.exe` | `0xC0000005 ×3` | **loader aceita**; o código roda e faltou no EP |
+
+Ou seja: o `0xC000007B` deste caso **não era da reconstrução da IAT** (que está correta) nem da
+captura — era estado de carga. O `0xC0000005` que sobra é outro problema: o EP do dump é o do
+**stub** do packer, que reexecuta sobre memória já desempacotada. Apontar o EP para o OEP é o
+próximo passo deste caso, e não foi feito nesta rodada.
 
 ## 7. Reproduzir
 
@@ -266,6 +289,12 @@ $ node scripts/x64dbg-drive.mjs --modules                      # guarde esta lis
 $ node scripts/x64dbg-drive.mjs --dump-module clean.hardcase work/iat-hardcase/unpacked/dump-raw.exe
 $ node scripts/rebuild-iat.mjs --dump work/iat-hardcase/unpacked/dump-raw.exe \
       --out work/iat-hardcase/unpacked/dump-fixed.exe --modules <lista.txt> --mem <dir-dos-blobs>
+
+# 4) o passo que faltava para o loader ACEITAR a imagem (estado de carga)
+$ node scripts/reset-load-state.mjs --dump work/iat-hardcase/unpacked/dump-fixed.exe
+$ node scripts/reset-load-state.mjs --dump work/iat-hardcase/unpacked/dump-fixed.exe \
+      --out work/iat-hardcase/unpacked/dump-fixed-loadstate.exe
+$ node scripts/diagnose-load.mjs work/iat-hardcase/unpacked/dump-fixed-loadstate.exe
 ```
 
 Artefatos (todos fora do Git, em `work/`): `src/clean.hardcase.exe`, `unpacked/dump-raw.exe`,

@@ -261,9 +261,10 @@ OK   scripts/lib/common.ps1
    anexado a saída é emitida (o log do x64dbg a registra como evento, sem a string); sem
    debugger, ela **não chega** ao canal global nesta máquina (control test com `clean.exe`
    e snaps ligados: 0 byte). O listener está descartado como culpado (auto-teste em §1).
-   Quem falta ser tentado é o leitor **dentro** do debugger: janela *Log* do x64dbg e
-   WinDbg (instalado). Consequência honesta para o caso duro: a pergunta “qual checagem do
-   `ntdll` reprova o `dump-fixed.exe`” **continua em aberto**.
+   Quem faltava ser tentado era o leitor **dentro** do debugger: janela *Log* do x64dbg e
+   WinDbg (instalado) — e foi por esse caminho que a rodada seguinte (§7) fechou a pergunta.
+   Consequência honesta naquele momento: a pergunta “qual checagem do `ntdll` reprova o
+   `dump-fixed.exe`” ficou em aberto **naquela** rodada; **está respondida na §7** abaixo.
 2. **O MCP do x64dbg não expõe o texto do log.** O plugin tem `GetEventLog` (eventos) e
    nenhuma tool que devolva o conteúdo do log — confirmado pela lista de nomes extraída do
    `x64dbg-MCP-Server.dp64`. Ler loader snaps por MCP, hoje, não é possível; isso é uma
@@ -299,4 +300,184 @@ powershell -File .\scripts\load-snaps.ps1 -Image dump-fixed.exe -Apply    # shel
 # 3) verificações offline (as do CI)
 node .\scripts\check-consistency.mjs
 node .\scripts\verify-licenses.mjs
+```
+
+---
+
+## 7. Rodada seguinte (mesmo dia) — a checagem do loader medida, e o `0xC000007B` fechado
+
+Escopo desta rodada: **fechar o `0xC000007B` do dump de memória do caso `hardcase`**
+(`work/iat-hardcase/`), que o x64dbg carrega e o loader do Windows recusa.
+
+Resultado: a checagem que reprova está **identificada por medição** (breakpoint, registrador
+e valor lido) e existe uma correção verificada — `scripts/reset-load-state.mjs`. A cadeia
+completa está em [root-cause-0xc000007b.md](root-cause-0xc000007b.md) §8.
+
+> A medição foi possível com `cdb` (WinDbg 10.0.29661) + símbolos do Microsoft Symbol Server,
+> breakpoint por **módulo+offset** (imune a ASLR) e leitura de registrador. Os loader snaps da
+> §5 mostram *que* o loader reprovou; eles não dizem *onde*. Foi o breakpoint que localizou.
+
+### 7.1 De onde vem o status — 3 breakpoints, 1 execução
+
+```console
+$ cdb -y "srv*<cache>*https://msdl.microsoft.com/download/symbols" -xe ld:ntdll.dll \
+    -c 'bp ntdll+0x8c0f8 ".echo ===RETORNO DE LdrpInitializeProcess===; r eax; g";
+        bp ntdll+0x8c133 ".echo ===CAMINHO FALHA +0x1a7===; g";
+        bp ntdll+0x8c102 ".echo ===CAMINHO SUCESSO +0x176===; g"; g; q' \
+    work/iat-hardcase/unpacked/variants/dump-fixed-nosnap.exe
+===RETORNO DE LdrpInitializeProcess===
+ eax=c000007b                       ← o status da recusa, lido em `eax`
+===CAMINHO FALHA +0x1a7===          ← o caminho de sucesso (+0x176) NUNCA disparou
+```
+
+(Enquanto os loader snaps estão ligados, um `wt` de dentro da função é interrompido pelo
+próprio evento de debug-print do snap. Foi por isso que a medição passou a ser feita com o
+**mesmo arquivo renomeado** — a chave do `GlobalFlag` é por nome de imagem, então a cópia roda
+sem snaps e o trace/breakpoint acontece sem interferência.)
+
+### 7.2 A checagem, dentro de `LdrpProcessMappedModule`
+
+```console
+$ cdb … -c 'bp ntdll+0xa9af "…eax=; r eax; g"; bp ntdll+0xa9fc "…; r eax; g";
+             bp ntdll+0xaabe "…; r eax; g"; bp ntdll+0xab82 "…edi=; r edi; g"; g; q'
+===1-apos-RtlImageNtHeaderEx eax=0                  ← cabeçalhos OK
+===2-apos-LdrpValidateEntrySection eax=1            ← EP(0x19c0) >= SizeOfHeaders(0x1000): passa
+===4-TAIL edi=c000007b                              ← bp 3 (LdrpCfgProcessLoadConfig) NÃO disparou
+```
+
+O `edi=0xC000007B` do tail só é escrito em `+0x22e`, e o único caminho que chega lá sem passar
+pelo `LdrpCfgProcessLoadConfig` é o `+0x226`. Medindo esse trecho:
+
+```console
+===+0x11d (EntryPoint!=0)===   000001f7`a5cb7408  00007ff7`575719c0   ← EntryPoint = base+0x19c0
+===+0x124 versao===            00007ff7`57570140  000a 0000          ← MajorSubsystemVersion = 10
+===+0x226 test eax===          eax=0                                  ← fall-through → 0xC000007B
+```
+
+Ou seja: `MajorSubsystemVersion >= 7` leva a `+0x226`, e ali um **`eax == 0`** decide a recusa.
+Esse `eax` é o retorno de `LdrInitSecurityCookie` (nenhuma instrução entre a chamada e o teste
+escreve `eax`).
+
+### 7.3 O valor que reprova: `__security_cookie` em estado de execução
+
+```console
+===cookie-ptr===
+rax=00007ff757599790                       ← LoadConfig (RVA 0x29790 = data dir 10)
+rbx=00007ff757570000                       ← DllBase (base ASLR NOVA)
+00007ff7`575997e8  00007ff7`575a4400       ← [LoadConfig+0x58] = SecurityCookie (RVA 0x34400)
+===COMPARACAO-DO-MAGIC===
+00007ff7`575a4400  0000eb6c`2996b639       ← [cookie] = valor de EXECUÇÃO
+r14=00002b992ddfa232                       ← sentinela do MSVC que o loader exige
+===FALHA-em-LdrInitSecurityCookie (eax=0)===
+```
+
+(O mesmo breakpoint na 1ª invocação — a própria `ntdll` — mostra `[cookie] = 0x2b992ddfa232` e
+passa: é o contraste que fecha o argumento.)
+
+### 7.4 A correção e a verificação
+
+```console
+$ node scripts/reset-load-state.mjs --dump work/iat-hardcase/unpacked/dump-fixed.exe
+  config: LoadConfig rva=0x29790 size=0x148
+  cookie: VA=0x7ff77be54400  RVA=0x34400
+          antes  = 0x0000eb6c2996b639 (estado de EXECUÇÃO)
+          depois = 0x00002b992ddfa232 (sentinela MSVC)
+  ação  : dry-run
+$ node scripts/reset-load-state.mjs --dump …\dump-fixed.exe --out …\dump-fixed-loadstate.exe
+  ação  : escrito / saída: …\dump-fixed-loadstate.exe (380928 bytes)
+```
+
+| arquivo | saída, 3 execuções | leitura |
+|---|---|---|
+| `src/clean.hardcase.exe` | `0x0 0x0 0x0` | roda (controle) |
+| `unpacked/dump-raw.exe` | `erro:EFTYPE ×3` | `CreateProcess` recusa (193 = ERROR_BAD_EXE_FORMAT) |
+| `unpacked/dump-fixed.exe` | `0xC000007B ×3` | loader recusa |
+| `unpacked/dump-fixed-loadstate.exe` | `0xC0000005 ×3` | **loader aceita**; o código roda e falha no EP |
+
+E o `diagnose-load.mjs` (que nesta rodada aprendeu a olhar o estado de carga) passa a nomear o
+vício e a correção:
+
+```console
+$ node scripts/diagnose-load.mjs work/iat-hardcase/unpacked/dump-fixed.exe
+  [i ] reloc-ok — 361 entradas de relocação, todas em seções com dados
+  [!!] cookie-em-estado-de-execucao — __security_cookie em RVA 0x34400 = 0x0000eb6c2996b639, mas o
+       loader exige o sentinela do MSVC 0x2b992ddfa232: … Corrija com:
+       node scripts/reset-load-state.mjs --dump <dump.exe> --out <saida.exe>
+  [!!] loader-rejeitou — a execução terminou com 0xC000007B …
+  Veredito: imagem com vícios de loader conhecidos        (exit=1)
+$ node scripts/diagnose-load.mjs work/iat-hardcase/unpacked/dump-fixed-loadstate.exe
+  [i ] cookie-no-sentinela — … está no sentinela do MSVC (estado de carga limpo)
+  [i ] run — exit=0xc0000005 (STATUS_ACCESS_VIOLATION)
+  Veredito: sem vício de loader conhecido                 (exit=0)
+```
+
+Que a imagem foi **aceita** também aparece no `cdb`: o alvo carrega `IMM32.DLL` e a falta é no
+código do alvo (`rip` inválido chamado de `wWinMainCRTStartup+0x9`, ou seja EP+9), não no loader:
+
+```console
+ModLoad: 00007ffd`13cd0000 00007ffd`13d01000   C:\WINDOWS\System32\IMM32.DLL
+(2e0.2080): Access violation - code c0000005 (first chance)
+rip=0000004cccb35000
+0000004c`cc95f9d8 00007ff6`259b19c9 : … : 0x0000004c`ccb35000
+0000004c`cc95f9e0 00007ffd`1466cd87 : … : notepad!wWinMainCRTStartup+0x9
+```
+
+### 7.5 O erro de harness da rodada anterior (corrigido nesta)
+
+O teste de carga usava `(r.status >>> 0)`. Quando o `spawnSync` **não consegue executar** o
+arquivo, `status` é `null` — e `null >>> 0` é `0`. Foi assim que `dump-raw.exe` apareceu como
+"exit 0" numa medição intermediária desta rodada. `cdb` mostrou o que era de verdade:
+
+```console
+CommandLine: …\dump-raw.exe
+Cannot execute '…\dump-raw.exe', Win32 error 0n193
+    "%1 não é um aplicativo Win32 válido."
+```
+
+Consequência prática: **`0xC000007B` e `EFTYPE`/193 são o mesmo STATUS_INVALID_IMAGE_FORMAT** — a
+diferença é o estágio (o `CreateProcess` desiste antes de criar o processo, em vez de o processo
+já criado morrer no loader). O harness passou a distinguir `r.error` de `status === 0`, o
+`diagnose-load.mjs` também (§7.4) e o `reset-load-state.mjs` nasceu com a mesma distinção.
+
+### 7.6 O que NÃO funcionou nesta rodada
+
+1. **O Scylla não foi executado.** A dependência pedida para separar "problema da captura" vs
+   "problema da reconstrução" acabou resolvida por outra via: o dump **cru** (`dump-raw.exe`) é
+   recusado **antes** de qualquer reconstrução (`EFTYPE`/193 no `CreateProcess`), então os dois
+   arquivos têm o mesmo destino. Além disso, o `rebuild-iat.mjs` é declaradamente o equivalente
+   headless do *Fix Dump* do Scylla — logo `dump-fixed.exe` **é** o que o *Fix Dump* produziria,
+   e ele falhava com `0xC000007B` até o cookie ser reposto. Rodei o Scylla? **Não** (o plugin do
+   x64dbg não tem modo CLI; a GUI exige interação). Fica como não feito, com a previsão
+   registrada: **um dump "consertado" pelo Scylla, sem o reset de estado, continua recusado.**
+2. **Dois falsos começos meus, registrados para não se repetirem:** (a) `wt` dentro de
+   `LdrpInitializeProcess` foi interrompido pelo evento de debug-print dos próprios loader
+   snaps — resolvido rodando a cópia sem o flag; (b) dois breakpoints com offset errado
+   (`0x2a9af` em vez de `0xa9af`) apontaram para endereço inválido e geraram um
+   access violation que não tinha nada a ver com o alvo — os offsets abaixo de `0x10000`
+   perderam o dígito `a` na conta.
+3. **O `0xC0000005` que sobra não é loader.** O EP de um dump é o do stub do packer, que
+   reexecuta sobre memória já desempacotada: apontar o EP para o OEP e completar a resolução de
+   imports é trabalho **separado**, e não foi feito nesta rodada.
+4. **A confirmação nos binários do DEMO não foi refeita.** A §5 desta verificação mediu três
+   gatilhos (`LOADCONFIG` zerado, `.rdata`/`.data` esvaziados, `BASERELOC` zerado) que agora
+   têm mecanismo na cadeia identificada (root-cause §8.4) — mas isso é leitura de disassembly,
+   não breakpoint naquelas amostras.
+
+### 7.7 Reproduzir
+
+```bash
+# 0) o alvo do caso e o diagnóstico (detecta o vício e aponta a correção)
+node scripts/diagnose-load.mjs work/iat-hardcase/unpacked/dump-fixed.exe
+
+# 1) a correção (dry-run por padrão)
+node scripts/reset-load-state.mjs --dump work/iat-hardcase/unpacked/dump-fixed.exe
+node scripts/reset-load-state.mjs --dump work/iat-hardcase/unpacked/dump-fixed.exe \
+     --out work/iat-hardcase/unpacked/dump-fixed-loadstate.exe
+
+# 2) a prova de carga: 0xC000007B antes, 0xC0000005 (loader aceitou) depois
+node scripts/diagnose-load.mjs work/iat-hardcase/unpacked/dump-fixed-loadstate.exe
+
+# 3) verificações offline (as do CI)
+node scripts/check-consistency.mjs
+node scripts/verify-licenses.mjs
 ```

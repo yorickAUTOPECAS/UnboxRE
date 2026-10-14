@@ -26,9 +26,10 @@ não quebra nada, e nada é instalado/compilado/copiado sem uma flag explícita
 | `scan-secrets.ps1` | Windows (pwsh) | procura segredos e arquivos indevidos | não |
 | `gen-mcp-config.mjs` | Node | gera/valida as configs MCP por cliente | com `--apply` (grava em `config/mcp/generated/`) |
 | `identify-protections.mjs` | Node | triagem de packer/protetor por assinatura (UPX, VMProtect, Themida…) | não |
-| `diagnose-load.mjs` | Node | "por que este .exe sai com 0xC000007B?": vícios de loader (seções esvaziadas, dir em seção sem dados, ASLR sem reloc) + o status real da execução | não |
+| `diagnose-load.mjs` | Node | "por que este .exe sai com 0xC000007B?": vícios de loader (seções esvaziadas, dir em seção sem dados, ASLR sem reloc, `__security_cookie` em estado de execução) + o status real da execução | não |
 | `make-packed-sample.mjs` | Node | fabrica um alvo empacotado (stub em `lib/pkr-stub.rs`) a partir de um PE que roda: XOR do código, IAT por DLL, EP → stub → OEP | sim (o `.exe` gerado) |
 | `rebuild-iat.mjs` | Node | equivalente headless do *Fix Dump* do Scylla: acha a IAT num dump de memória, resolve cada slot (nome/ordinal) e escreve uma seção `.idata2` nova | com `--out` |
+| `reset-load-state.mjs` | Node | dump de memória recusado pelo loader (`0xC000007B`): repõe o `__security_cookie` no sentinela do MSVC que o `LdrInitSecurityCookie` exige, devolvendo a imagem ao estado de carga | com `--out` |
 | `x64dbg-drive.mjs` | Node | dirige o x64dbg pelo MCP (load, breakpoint, `ReadMemory`, `GetMemoryMap`, `DumpModule`…) — a ponte scriptável entre o debugger e o caso em análise | conforme o comando |
 | `load-snaps.ps1` | Windows (elevado) | liga/desliga *loader snaps* (`FLG_SHOW_LDR_SNAPS`) para uma imagem — o efeito de `gflags /i app.exe +sls`, sem o gflags.exe | com `-Apply`, em shell elevado |
 | `capture-debugprint.ps1` | Windows | listener do canal `DBWIN_BUFFER` (OutputDebugString/DbgPrint) para alvos **fora** do debugger — validado por auto-teste; medido que ele **não** recebe *loader snaps* neste host (para snaps, leia a janela Log do x64dbg/WinDbg — ver [docs/tools/gflags.md](../docs/tools/gflags.md)) | com `-OutFile` |

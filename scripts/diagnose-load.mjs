@@ -11,7 +11,9 @@
  * coisas que empacotadores/protetores mexem quando remontam o arquivo:
  *
  *   1. seções ORIGINAIS esvaziadas (SizeOfRawData = 0) — inclusive `.rdata`/`.data`;
- *   2. o mapa de relocações / o load config, que deixam de cobrir o que precisam.
+ *   2. o mapa de relocações / o load config, que deixam de cobrir o que precisam;
+ *   3. o **estado de carga** — `__security_cookie` já randomizado (dump de memória):
+ *      `LdrInitSecurityCookie` reprova a imagem. Ver §8 de `reports/root-cause-0xc000007b.md`.
  *
  * O caso real que originou este script: builds DEMO de VMProtect 3.11 e Themida
  * 3.2.4 esvaziam as seções originais do alvo e o Windows 11 (build 26200) passa a
@@ -28,7 +30,9 @@
  *      no Windows o status é o NTSTATUS completo (ex. 3221225595 = 0xC000007B).
  *
  * Uso: node scripts/diagnose-load.mjs <arquivo.exe> [--no-run] [--json]
- * Exit: 0 analisado e o alvo carregou (ou --no-run) · 1 o loader rejeitou ·
+ * Exit: 0 analisado e o alvo carregou (ou --no-run) · 1 o loader rejeitou (inclusive
+ *       quando o `CreateProcess` falha, ex. `EFTYPE`/193 = ERROR_BAD_EXE_FORMAT, que é o
+ *       mesmo erro visto como `0xC000007B` quando o processo chega a ser criado) ·
  *       2 não consegui ler/executar. Nunca usa sudo.
  */
 
@@ -181,6 +185,47 @@ if (reloc.rva && reloc.size) {
   }
 }
 
+// LoadConfig / __security_cookie — o estado de carga exigido pelo loader.
+// Medido em ntdll (ver reports/root-cause-0xc000007b.md §8): LdrInitSecurityCookie exige
+// que o cookie da imagem ainda esteja no sentinela do MSVC e devolve 0 caso contrário; com
+// 0, LdrpProcessMappedModule devolve STATUS_INVALID_IMAGE_FORMAT antes do entrypoint.
+const MSVC_COOKIE_SENTINEL = 0x2b992ddfa232n;
+const imageBase = is64 ? buf.readBigUInt64LE(opt + 24) : BigInt(u32(opt + 28));
+const lcRva = u32(dirsOff + 10 * 8);
+const lcSize = u32(dirsOff + 10 * 8 + 4);
+if (lcRva && lcSize) {
+  const lcOff = rva2off(lcRva);
+  if (lcOff < 0 || lcOff + 0x60 > buf.length) {
+    add("high", "loadconfig-ilegivel",
+      `LOAD_CONFIG rva=0x${lcRva.toString(16)} size=0x${lcSize.toString(16)} não é legível no arquivo: sem ele LdrInitSecurityCookie devolve 0 e o loader sai com 0xC000007B`);
+  } else {
+    const declared = u32(lcOff);
+    const cookieVa = buf.readBigUInt64LE(lcOff + 0x58);
+    if (declared < 0x70) {
+      add("high", "loadconfig-curto",
+        `LOAD_CONFIG com Size=0x${declared.toString(16)} (< 0x70): o cookie nem é lido — LdrInitSecurityCookie devolve 0 e o loader sai com 0xC000007B (típico de seção do LoadConfig esvaziada)`);
+    } else if (cookieVa === 0n) {
+      add("medium", "securitycookie-ausente", "LOAD_CONFIG não declara SecurityCookie (imagem sem CRT, ou load config remontado por packer)");
+    } else if (cookieVa < imageBase || cookieVa >= imageBase + BigInt(sizeOfImage)) {
+      add("medium", "securitycookie-fora-da-imagem",
+        `SecurityCookie=0x${cookieVa.toString(16)} está fora de [ImageBase, ImageBase+SizeOfImage): o arquivo não está no layout de memória (tabela de seções de arquivo com dados de dump, ou base trocada)`);
+    } else {
+      const cookieRva = Number(cookieVa - imageBase);
+      const cookieOff = rva2off(cookieRva);
+      const current = cookieOff >= 0 && cookieOff + 8 <= buf.length ? buf.readBigUInt64LE(cookieOff) : null;
+      if (current !== null && current !== MSVC_COOKIE_SENTINEL) {
+        add("high", "cookie-em-estado-de-execucao",
+          `__security_cookie em RVA 0x${cookieRva.toString(16)} = 0x${current.toString(16).padStart(16, "0")}, ` +
+            `mas o loader exige o sentinela do MSVC 0x${MSVC_COOKIE_SENTINEL.toString(16)}: esta imagem está no estado de EXECUÇÃO ` +
+            "(dump de memória) — LdrInitSecurityCookie devolve 0 e o loader sai com 0xC000007B antes do entrypoint. " +
+            "Corrija com: node scripts/reset-load-state.mjs --dump <dump.exe> --out <saida.exe>");
+      } else if (current !== null) {
+        add("info", "cookie-no-sentinela", `__security_cookie em RVA 0x${cookieRva.toString(16)} está no sentinela do MSVC (estado de carga limpo)`);
+      }
+    }
+  }
+}
+
 // ── Run the target ──────────────────────────────────────────────────────────
 const NTSTATUS = {
   0x0: "ok",
@@ -197,15 +242,25 @@ const NTSTATUS = {
 let run = { skipped: true };
 if (!NO_RUN) {
   const r = spawnSync(file, [], { timeout: 8000 });
-  const status = r.status === null ? null : r.status >>> 0;
-  run = {
-    skipped: false,
-    exit: status,
-    hex: status === null ? null : `0x${status.toString(16)}`,
-    meaning: status === null ? (r.error ? r.error.code : "sem status (timeout/sinal)") : (NTSTATUS[status] || "status não catalogado"),
-  };
-  if (run.exit === 0xc000007b) {
-    add("high", "loader-rejeitou", "a execução terminou com 0xC000007B: o loader rejeitou a imagem ANTES do entrypoint (é isto que este script diagnostica)");
+  if (r.error) {
+    // O processo nem chegou a existir: é o MESMO erro de imagem inválida, detectado um
+    // estágio antes (o NTSTATUS 0xC000007B e o Win32 193/ERROR_BAD_EXE_FORMAT são o mesmo
+    // STATUS_INVALID_IMAGE_FORMAT em camadas diferentes). `status` aqui é `null`, e tratar
+    // `null >>> 0` como "0" faria o script dizer que o alvo carregou — não faz.
+    run = { skipped: false, exit: null, hex: null, error: r.error.code, meaning: `CreateProcess falhou (${r.error.code}) — o loader recusou a imagem antes de criar o processo` };
+    add("high", "loader-recusou-createprocess",
+      `CreateProcess falhou com ${r.error.code} (ERROR_BAD_EXE_FORMAT = 193 é o mesmo STATUS_INVALID_IMAGE_FORMAT visto como 0xC000007B quando o processo chega a ser criado)`);
+  } else {
+    const status = r.status === null ? null : r.status >>> 0;
+    run = {
+      skipped: false,
+      exit: status,
+      hex: status === null ? null : `0x${status.toString(16)}`,
+      meaning: status === null ? "sem status (timeout/sinal)" : (NTSTATUS[status] || "status não catalogado"),
+    };
+    if (run.exit === 0xc000007b) {
+      add("high", "loader-rejeitou", "a execução terminou com 0xC000007B: o loader rejeitou a imagem ANTES do entrypoint (é isto que este script diagnostica)");
+    }
   }
 }
 
@@ -238,9 +293,11 @@ if (JSON_OUT) {
   const tag = { high: "!!", medium: "? ", info: "i " };
   for (const f of findings) console.log(`  [${tag[f.level]}] ${f.code} — ${f.detail}`);
   if (run.skipped) console.log("  [i ] run — pulado (--no-run)");
+  else if (run.error) console.log(`  [!!] run — ${run.error} (${run.meaning})`);
   else console.log(`  [${run.exit === 0xc000007b ? "!!" : "i "}] run — exit=${run.hex} (${run.meaning})`);
   console.log(`\n  Veredito: ${verdict}`);
   console.log("");
 }
 
-process.exit(run.skipped ? 0 : run.exit === 0xc000007b ? 1 : 0);
+const rejected = run.exit === 0xc000007b || Boolean(run.error);
+process.exit(run.skipped ? 0 : rejected ? 1 : 0);
