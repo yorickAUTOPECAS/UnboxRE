@@ -51,8 +51,9 @@ dump está no passo 4** — leia o quadro logo abaixo antes de armar qualquer br
 4. Pare no OEP com breakpoint de HARDWARE:  SetHardwareBreakpoint <OEP>
    → run → pausa no código original
 5. Confira os MÓDULOS no ponto de parada:  ListModules
-   (quem carrega as DLLs do alvo é o stub: no EP a lista tem 4 módulos, no OEP tem 17 —
-   reconstruir a IAT com a lista curta dá uma tabela de imports errada)
+   (quem carrega as DLLs do alvo é o stub: medido no caso iat-hardcase, no EP a lista tinha 4
+   módulos e a reconstrução saiu com 126 slots resolvidos em 53 blocos; no ponto de parada são
+   18 módulos, 315 slots em 70 blocos — a lista curta dá uma tabela de imports errada)
 6. DumpModule (dump completo com IAT)  ou  DumpMemory na região
 7. AnalyzeModule no dump → reconstrói imports
 8. Salve em unpacked/ e registre o comando em evidence/
