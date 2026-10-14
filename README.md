@@ -138,6 +138,12 @@ Automação:
 | [scripts/bootstrap-wsl.sh](scripts/bootstrap-wsl.sh) | Provisionamento da toolchain Linux dentro do WSL |
 | [scripts/gen-mcp-config.mjs](scripts/gen-mcp-config.mjs) | Gera/valida os blocos `mcpServers` para cada cliente de IA |
 | [scripts/identify-protections.mjs](scripts/identify-protections.mjs) | Triagem embutida de packer/protetor (UPX, VMProtect, Themida, ASPack…), sem dependência externa |
+| [scripts/diagnose-load.mjs](scripts/diagnose-load.mjs) | "Por que este .exe sai com 0xC000007B?": vícios de loader (seções esvaziadas, diretório de dados em seção sem bytes, ASLR sem reloc) + o status real da execução |
+| [scripts/x64dbg-drive.mjs](scripts/x64dbg-drive.mjs) | Dirige o x64dbg pela ponte MCP, sem clicar na GUI: load, breakpoint, `ReadMemory`, `GetMemoryMap`, `DumpModule` |
+| [scripts/rebuild-iat.mjs](scripts/rebuild-iat.mjs) | Equivalente headless do *Fix Dump* do Scylla: acha a IAT num dump de memória, resolve cada slot (nome/ordinal) e escreve a tabela nova |
+| [scripts/make-packed-sample.mjs](scripts/make-packed-sample.mjs) | Fabrica um alvo empacotado de estudo (XOR do código, IAT por DLL, salto EP → stub → OEP) a partir de um PE que roda |
+| [scripts/load-snaps.ps1](scripts/load-snaps.ps1) | Liga/desliga *loader snaps* (o efeito de `gflags /i app.exe +sls`) para ver a decisão do loader — exige shell elevado |
+| [scripts/capture-debugprint.ps1](scripts/capture-debugprint.ps1) | Listener do canal `DBWIN_BUFFER`: é assim que se lê a saída de depuração do loader (sem DebugView, sem GUI) |
 | [scripts/smoke-mcp.mjs](scripts/smoke-mcp.mjs) | Prova que a ponte MCP do REA sobe e responde (handshake `initialize` + `tools/list`) |
 | [scripts/start-x64dbg.ps1](scripts/start-x64dbg.ps1) | Sobe o x64dbg minimizado para o plugin MCP ficar vivo, espera a porta e (com `-Check`) roda a chamada MCP real |
 | [scripts/mcp-x64dbg-smoke.mjs](scripts/mcp-x64dbg-smoke.mjs) | Prova que o MCP do x64dbg responde **ao vivo** (initialize → tools/list → uma tool real) |

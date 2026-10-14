@@ -27,6 +27,11 @@ não quebra nada, e nada é instalado/compilado/copiado sem uma flag explícita
 | `gen-mcp-config.mjs` | Node | gera/valida as configs MCP por cliente | com `--apply` (grava em `config/mcp/generated/`) |
 | `identify-protections.mjs` | Node | triagem de packer/protetor por assinatura (UPX, VMProtect, Themida…) | não |
 | `diagnose-load.mjs` | Node | "por que este .exe sai com 0xC000007B?": vícios de loader (seções esvaziadas, dir em seção sem dados, ASLR sem reloc) + o status real da execução | não |
+| `make-packed-sample.mjs` | Node | fabrica um alvo empacotado (stub em `lib/pkr-stub.rs`) a partir de um PE que roda: XOR do código, IAT por DLL, EP → stub → OEP | sim (o `.exe` gerado) |
+| `rebuild-iat.mjs` | Node | equivalente headless do *Fix Dump* do Scylla: acha a IAT num dump de memória, resolve cada slot (nome/ordinal) e escreve uma seção `.idata2` nova | com `--out` |
+| `x64dbg-drive.mjs` | Node | dirige o x64dbg pelo MCP (load, breakpoint, `ReadMemory`, `GetMemoryMap`, `DumpModule`…) — a ponte scriptável entre o debugger e o caso em análise | conforme o comando |
+| `load-snaps.ps1` | Windows (elevado) | liga/desliga *loader snaps* (`FLG_SHOW_LDR_SNAPS`) para uma imagem — o efeito de `gflags /i app.exe +sls`, sem o gflags.exe | com `-Apply`, em shell elevado |
+| `capture-debugprint.ps1` | Windows | listener do canal `DBWIN_BUFFER` (OutputDebugString/DbgPrint) — é assim que se LÊ a saída do loader sinalizada por `load-snaps.ps1` | com `-OutFile` |
 | `check-consistency.mjs` | Node | regressão offline: doc ↔ código ↔ licenças divergindo | não |
 | `verify-licenses.mjs` | Node (rede) | confere cada licença contra a fonte primária | não |
 | `smoke-mcp.mjs` | Node | handshake MCP real (initialize + tools/list) contra o REA | não |

@@ -151,7 +151,14 @@ if (reloc.rva && reloc.size) {
     const badTargets = new Map();
     while (p + 8 <= end && p + 8 <= buf.length) {
       const pageRva = u32(p), blockSize = u32(p + 4);
-      if (blockSize < 8) break;
+      // Um dump de memória pode trazer a tabela de seções no layout de arquivo e os dados
+      // no de memória: aí o bloco lido aqui é lixo e `blockSize` pode ser enorme. Sem este
+      // limite o script estourava (ERR_OUT_OF_RANGE) em vez de classificar o arquivo.
+      if (blockSize < 8 || blockSize > end - p || p + blockSize > buf.length) {
+        add("high", "reloc-bloco-invalido",
+          `bloco de relocação inválido em rva 0x${reloc.rva.toString(16)}: pageRva=0x${pageRva.toString(16)} blockSize=0x${blockSize.toString(16)} (lido em offset 0x${p.toString(16)}) — cabeçalho inconsistente com os dados (dump em layout de memória com tabela de seções de arquivo?)`);
+        break;
+      }
       for (let i = 0; i + 1 < (blockSize - 8) / 2; i++) {
         const e = u16(p + 8 + i * 2);
         if (!(e >> 12)) continue;
