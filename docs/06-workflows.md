@@ -138,6 +138,33 @@ nativo não aparece aqui — para ela, o caminho é debugger/emulação (Cenári
 ainda **não é ferramenta do toolkit**: vive como script do caso (`work/<alvo>/scripts/`), que não
 vai para o Git por regra.
 
+### Alvo que calcula rápido demais para observar (park + patch + leitura)
+
+Alguns alvos fazem o trabalho **depois** do input e terminam em menos de 1 ms — medido nesta série:
+`NtSuspendProcess` devolve `0xC000010A` (`STATUS_PROCESS_IS_TERMINATING`) até com atraso 0. Para
+esses, o caminho que funciona é instrumentar **antes** de alimentar a entrada:
+
+```powershell
+# 1) parkeia no prompt, patcha em MEMÓRIA (nunca no arquivo), alimenta e congela para ler depois
+powershell -File scripts/park-patch-run.ps1 -Target work/acme/src/acme.exe -Entrada 'ABC' `
+    -HookPos '0x4695' -FreezeIat 'exit=0x46644'
+# 2) o que o alvo prepara a partir da entrada (função de trim/decodificação antes do cálculo)
+powershell -File scripts/park-patch-run.ps1 -Target work/acme/src/acme.exe -Entrada 'ABC' `
+    -HookCall '0x4659=0x1000' -SeguirRetorno -FreezeIat 'exit=0x46644'
+# 3) stub próprio: grava rsp (para ler o frame da função) ou vários registradores
+powershell -File scripts/park-patch-run.ps1 -Target work/acme/src/acme.exe -Entrada 'ABC' `
+    -HookStub '0x8333=49BB{scratch}498923{orig}C3' -FreezeIat 'exit=0x46644'
+```
+
+As cinco armadilhas medidas (estão no cabeçalho do script e no relatório da rodada 8.5):
+`call stub` tem de reconstruir **`rsp` do call** (não só o alinhamento de 16 — se a função recebe 5º
+argumento na pilha, `rsp` errado = `0xC0000005`); store absoluto de 64 bits só via `movabs` (use
+`r11` quando o retorno usa `rax`/`rdx`); stub montado à mão erra encoding — **valide com
+`python scripts/disasm-range.py`** numa cópia do alvo; cada modo de hook precisa de área própria; e
+**rejeição pode ser transporte, não senha** (entrada binária que a função de preparação zera vira
+digest de entrada vazia — instrumente o call de preparação antes de concluir que a senha está
+errada).
+
 **Por quê antes de qualquer ferramenta pesada:** a resposta que decide o resto do
 plano é "este binário está empacotado/protegido ou é só lógica?". Se **não** houver
 proteção de carregamento, não existe dump, OEP nem IAT a reconstruir — o Cenário 1
