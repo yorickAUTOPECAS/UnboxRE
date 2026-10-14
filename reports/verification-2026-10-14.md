@@ -984,6 +984,12 @@ re-executar só o job de licenças —
 `success Licenças contra a fonte primária · success Documentação e estrutura · success Scan de
 segredos e binários · success Ponte MCP do REA sobe e responde`.
 
+Depois desta nota, o commit final da rodada (`fab862f`, que só acrescenta o texto acima) passou
+na **primeira** execução, sem re-run —
+[run 38602339115](https://github.com/yorickAUTOPECAS/UnboxRE/actions/runs/38602339115):
+`success Licenças contra a fonte primária · success Documentação e estrutura · success Scan de
+segredos e binários · success Ponte MCP do REA sobe e responde`.
+
 > **Limitação declarada (não resolvida nesta rodada):** o job de licenças depende de um host
 > instável e por isso pode ficar vermelho sem nenhum defeito no repositório. Não mascarei isso
 > mexendo no gate: as afirmações de licença continuam vindo da fonte primária e o script continua
