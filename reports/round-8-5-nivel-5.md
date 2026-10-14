@@ -184,6 +184,9 @@ com o fluxo park → patch → alimentar → ler e o porquê de cada armadilha.
 
 ## 6. Verificação e limitações
 
+CI do commit deste relatório (conteúdo da rodada): `CI` run 38650513659 — **success** em
+`5858849` (<https://github.com/yorickAUTOPECAS/UnboxRE/actions/runs/38650513659>).
+
 ```console
 $ node scripts/check-consistency.mjs      # docs <-> código <-> licenças (offline)
 $ node scripts/verify-licenses.mjs        # licenças vs fonte primária (rede)
