@@ -125,13 +125,37 @@ Além do Ghidra, o que falta para análise estática *profissional e scriptável
   ```
 - **Integração:** entrada/saída do pipeline (parseia o que o Ghidra analisou); alimenta o `04-instalacao` de patching.
 
+### a.2.1 `triage-static.mjs` `✅ do toolkit` — `MIT`
+
+- **O que faz:** a mesma pergunta do LIEF/DIE respondida **sem terceiro e sem debugger**, nos
+  dois formatos: cabeçalho, seções com permissões e entropia, imports (por DLL no PE;
+  `DT_NEEDED` + símbolos indefinidos do `.dynsym` no ELF), o código que roda **antes** do
+  `main` (TLS callbacks no PE; `DT_INIT`/`DT_INIT_ARRAY` no ELF), strings **só de seções não
+  executáveis** com o endereço de cada uma e, com `--refs`, onde cada uma é usada no código;
+  com `--data-refs`, as **constantes** que o código lê (semente, máscara, tabela).
+- **Quando usar:** primeiro passo de toda triagem, e de novo a cada passo do "o que ele
+  imprime / o que ele importa / onde isso é usado". É o que a rodada 8.1 escreveu na mão
+  para um crackme de 13 KB e a rodada 8.3 precisou para um ELF — nas duas vezes porque o
+  caminho existente (`GetStrings`/`GetImports` do MCP) exige o debugger vivo.
+- **Como usar:**
+  ```bash
+  $ node scripts/triage-static.mjs <alvo> --refs            # strings e onde são usadas
+  $ node scripts/triage-static.mjs <alvo> --data-refs       # que CONSTANTES o código lê
+  ```
+- **Integração:** alimenta `notes/triage.md`; os endereços que ele imprime são o que
+  `pe-read.mjs` lê e o que `disasm-range.py` desmonta. No ELF, o endereço é o **vaddr de
+  link** (absoluto, como no readelf), não um RVA.
+- **Por quê:** o `diec` é ótimo para "é packer", mas não responde "qual string este alvo
+  imprime e qual instrução a usa" — e essa é a pergunta que decide o próximo comando.
+
 ### a.3 Capstone + Keystone `⬜` — `BSD-3`
 
 - **O que faz:** Capstone = **disassembler** programático multi-arch; Keystone = **assembler** programático.
 - **Quando usar:** dentro de scripts Python (parsear um trace, montar um stub, desmontar bytes de memória do x64dbg/Frida).
 - **Como usar:** `python -c "from capstone import *;print(Cs(CS_ARCH_X86,CS_MODE_64).disasm(b'\x48\x31\xc0',0x1000).__next__())"`
   e, no toolkit, `python scripts/disasm-range.py <alvo> <rva-ini> --fim <rva-fim> --strings`
-  (o caminho entre a triagem e o debugger: lê o trecho de código sem abrir Ghidra).
+  (o caminho entre a triagem e o debugger: lê o trecho de código sem abrir Ghidra — aceita
+  **PE e ELF**; no ELF o endereço é o vaddr de link).
 - **Integração:** base de quase todo script de análise custom; usado por angr/Qiling.
 - **Instalação (medida no round 8.1):** o Capstone **não tem comando próprio** — o
   `cstool` não vem no pacote do pip — então nem o `health-check` nem o bootstrap o
@@ -154,6 +178,10 @@ Além do Ghidra, o que falta para análise estática *profissional e scriptável
 - **Como usar:** `$ diec -j target.exe > notes/die.json`
 - **Integração:** saída JSON alimenta `notes/triage.md`; define se o passo 3 (unpack) é obrigatório.
 - **Por quê:** sem DIE você descobre que era VMProtect depois de 3 horas de Ghidra.
+- **Primeira passada embutida (sem DIE):** `node scripts/identify-protections.mjs <alvo>`
+  cobre UPX/VMProtect/Themida/ASPack/MPRESS/Enigma/.NET por assinatura e estrutura — e,
+  desde a rodada 8.3, **também ELF** (segmento LOAD W+X, entry fora do LOAD, `ptrace`
+  importado, `UPX!`); o DIE continua sendo o passo mais completo.
 
 ### a.6 ghidriff + Diaphora `⬜` — `Apache-2.0` / `GPL-3.0`
 

@@ -66,43 +66,108 @@ try {
   console.error(`[!!] não consegui ler ${file}: ${e.message}`);
   process.exit(2);
 }
-if (buf.length < 0x40 || buf.readUInt16LE(0) !== 0x5a4d) {
-  console.error(`[!!] ${file}: sem assinatura MZ — não é um PE`);
+// ── formato: PE (Windows) ou ELF (Linux) ─────────────────────────────────────
+// Um alvo ELF (round 8.3) era recusado aqui com "sem assinatura MZ", sem alternativa.
+// As seções ELF são normalizadas no MESMO formato do PE ({name, va, virtualSize, raw,
+// rawSize, characteristics}), então o resto do script (mapa, --rva, --section, --off,
+// hexdump, leituras tipadas) vale para os dois. Em ELF, `va` é o vaddr de link e a
+// imagem é referenciada com base 0 (como no objdump); as flags SHF viram os bits de
+// permissão que o PE usa, para o mapa mostrar R/W/X do mesmo jeito.
+const isELF = buf.length >= 0x40 && buf[0] === 0x7f && buf[1] === 0x45 && buf[2] === 0x4c && buf[3] === 0x46;
+const isPE = buf.length >= 0x40 && buf.readUInt16LE(0) === 0x5a4d;
+if (!isPE && !isELF) {
+  console.error(`[!!] ${file}: nem assinatura "MZ" (PE) nem "\\x7fELF" — formato não reconhecido`);
   process.exit(2);
 }
 const u16 = (o) => buf.readUInt16LE(o);
 const u32 = (o) => buf.readUInt32LE(o);
-const pe = u32(0x3c);
-if (u32(pe) !== 0x00004550) {
-  console.error(`[!!] ${file}: assinatura PE ausente em 0x${pe.toString(16)}`);
-  process.exit(2);
-}
-const nsec = u16(pe + 6);
-const osz = u16(pe + 20);
-const is64 = u16(pe + 24) === 0x20b;
-const imageBase = is64 ? Number(buf.readBigUInt64LE(pe + 24 + 24)) : u32(pe + 24 + 28);
+const u64 = (o) => Number(buf.readBigUInt64LE(o));
+const FMT = isPE ? "PE" : "ELF";
 const sections = [];
-for (let i = 0; i < nsec; i++) {
-  const s = pe + 24 + osz + i * 40;
-  sections.push({
-    name: buf.subarray(s, s + 8).toString("latin1").replace(/\0+$/, ""),
-    va: u32(s + 12),
-    virtualSize: u32(s + 8),
-    raw: u32(s + 20),
-    rawSize: u32(s + 16),
-    characteristics: u32(s + 36),
-  });
+let imageBase = 0;
+if (isPE) {
+  const pe = u32(0x3c);
+  if (u32(pe) !== 0x00004550) {
+    console.error(`[!!] ${file}: assinatura PE ausente em 0x${pe.toString(16)}`);
+    process.exit(2);
+  }
+  const nsec = u16(pe + 6);
+  const osz = u16(pe + 20);
+  const is64 = u16(pe + 24) === 0x20b;
+  imageBase = is64 ? u64(pe + 24 + 24) : u32(pe + 24 + 28);
+  for (let i = 0; i < nsec; i++) {
+    const s = pe + 24 + osz + i * 40;
+    sections.push({
+      name: buf.subarray(s, s + 8).toString("latin1").replace(/\0+$/, ""),
+      va: u32(s + 12),
+      virtualSize: u32(s + 8),
+      raw: u32(s + 20),
+      rawSize: u32(s + 16),
+      characteristics: u32(s + 36),
+    });
+  }
+} else {
+  if (buf[5] !== 1) {
+    console.error(`[!!] ${file}: ELF big-endian (EI_DATA=${buf[5]}) — este script lê little-endian`);
+    process.exit(2);
+  }
+  if (buf[4] !== 1 && buf[4] !== 2) {
+    console.error(`[!!] ${file}: EI_CLASS=${buf[4]} inválido`);
+    process.exit(2);
+  }
+  const is64 = buf[4] === 2;
+  const shoff = is64 ? u64(0x28) : u32(0x20);
+  const shentsize = u16(is64 ? 0x3a : 0x2e);
+  const shnum = u16(is64 ? 0x3c : 0x30);
+  const shstrndx = u16(is64 ? 0x3e : 0x32);
+  const raw = [];
+  for (let i = 0; i < shnum; i++) {
+    const o = shoff + i * shentsize;
+    if (o + shentsize > buf.length) break;
+    raw.push(is64
+      ? { nameOff: u32(o), type: u32(o + 4), flags: u64(o + 8), addr: u64(o + 16), off: u64(o + 24), size: u64(o + 32) }
+      : { nameOff: u32(o), type: u32(o + 4), flags: u32(o + 8), addr: u32(o + 12), off: u32(o + 16), size: u32(o + 20) });
+  }
+  const shstr = raw[shstrndx];
+  const cstr = (off) => {
+    if (!(off >= 0 && off < buf.length)) return "";
+    let e = off;
+    while (e < buf.length && buf[e] !== 0) e++;
+    return buf.subarray(off, e).toString("latin1");
+  };
+  // bits de permissão do PE, para reaproveitar o mesmo perms()/mapa
+  const R = 0x40000000, W = 0x80000000, X = 0x20000000;
+  const SHF_WRITE = 0x1, SHF_ALLOC = 0x2, SHF_EXECINSTR = 0x4;
+  for (const s of raw) {
+    const nobits = s.type === 8;   // SHT_NOBITS (.bss): memória, não arquivo
+    sections.push({
+      name: (shstr ? cstr(shstr.off + s.nameOff) : "") || "(sem nome)",
+      va: s.flags & SHF_ALLOC ? s.addr : -1,
+      virtualSize: s.size,
+      raw: s.off,
+      rawSize: nobits ? 0 : s.size,
+      characteristics: (s.flags & SHF_ALLOC ? R : 0) | (s.flags & SHF_WRITE ? W : 0) | (s.flags & SHF_EXECINSTR ? X : 0),
+      shType: s.type,
+    });
+  }
 }
 const span = (s) => Math.max(s.virtualSize, s.rawSize);
+const enderecoDe = (s) => (s.va < 0 ? "—" : hex(s.va, 6));
 const rva2off = (rva) => {
-  for (const s of sections) if (rva >= s.va && rva < s.va + span(s)) return s.raw + (rva - s.va);
+  for (const s of sections) {
+    if (s.va < 0 || s.rawSize === 0) continue;   // sem vaddr ou sem bytes no arquivo
+    if (rva >= s.va && rva < s.va + span(s)) return s.raw + (rva - s.va);
+  }
   return -1;
 };
 const off2rva = (off) => {
-  for (const s of sections) if (off >= s.raw && off < s.raw + s.rawSize) return s.va + (off - s.raw);
+  for (const s of sections) {
+    if (s.va < 0 || s.rawSize === 0) continue;
+    if (off >= s.raw && off < s.raw + s.rawSize) return s.va + (off - s.raw);
+  }
   return -1;
 };
-const sectionOf = (rva) => sections.find((s) => rva >= s.va && rva < s.va + span(s)) ?? null;
+const sectionOf = (rva) => sections.find((s) => s.va >= 0 && s.rawSize > 0 && rva >= s.va && rva < s.va + span(s)) ?? null;
 const perms = (s) =>
   `${s.characteristics & 0x40000000 ? "R" : "-"}${s.characteristics & 0x80000000 ? "W" : "-"}${s.characteristics & 0x20000000 ? "X" : "-"}`;
 const pad = (s, n) => String(s).padEnd(n);
@@ -160,19 +225,19 @@ if (sectName) {
 // ── modo mapa (sem --rva/--off/--section) ────────────────────────────────────
 if (startOff === null) {
   if (JSON_OUT) {
-    console.log(JSON.stringify({ file, size: buf.length, imageBase: hex(imageBase), sections: sections.map((s) => ({ name: s.name, rva: hex(s.va), offset: hex(s.raw), virtualSize: s.virtualSize, rawSize: s.rawSize, perms: perms(s) })) }, null, 2));
+    console.log(JSON.stringify({ file, size: buf.length, imageBase: hex(imageBase),    sections: sections.map((s) => ({ name: s.name, rva: s.va < 0 ? null : hex(s.va), offset: hex(s.raw), virtualSize: s.virtualSize, rawSize: s.rawSize, perms: perms(s) })) }, null, 2));
     process.exit(erro ? 2 : 0);
   }
   console.log("");
   console.log(`UnboxRE — mapa de seções: ${file}`);
   console.log("─".repeat(78));
-  console.log(`  ${buf.length} bytes · ImageBase=${hex(imageBase)}`);
-  console.log(`  ${pad("seção", 9)} ${pad("rva", 10)} ${pad("offset", 10)} ${pad("virt", 7)} ${pad("raw", 7)} perms`);
+  console.log(`  ${buf.length} bytes · ${FMT} · ${FMT === "PE" ? `ImageBase=${hex(imageBase)}` : `endereços = vaddr de link (base 0)`}`);
+  console.log(`  ${pad("seção", 12)} ${pad(FMT === "PE" ? "rva" : "vaddr", 10)} ${pad("offset", 10)} ${pad("virt", 8)} ${pad("raw", 8)} perms`);
   for (const s of sections) {
-    console.log(`  ${pad(s.name, 9)} ${pad(hex(s.va, 6), 10)} ${pad(hex(s.raw, 6), 10)} ${pad(s.virtualSize, 7)} ${pad(s.rawSize, 7)} ${perms(s)}`);
+    console.log(`  ${pad(s.name, 12)} ${pad(enderecoDe(s), 10)} ${pad(hex(s.raw, 6), 10)} ${pad(s.virtualSize, 8)} ${pad(s.rawSize, 8)} ${perms(s)}`);
   }
   console.log("");
-  console.log("  Use --rva <hex> (o que o disassembly cita) ou --off <hex> (posição no arquivo).");
+  console.log("  Use --rva <hex> (o endereço que o disassembly cita) ou --off <hex> (posição no arquivo).");
   console.log("");
   process.exit(erro ? 2 : 0);
 }
@@ -256,7 +321,8 @@ for (let i = 0; i < data.length; i += 16) {
   const chunk = data.subarray(i, i + 16);
   const hexs = Array.from(chunk, (b) => b.toString(16).padStart(2, "0")).join(" ");
   const txt = Array.from(chunk, (b) => (b >= 0x20 && b < 0x7f ? String.fromCharCode(b) : ".")).join("");
-  const rva = startRva !== null ? `rva ${hex(startRva + i, 6)}` : `rva ?      `;
+  const rot = FMT === "PE" ? "rva" : "addr";
+  const rva = startRva !== null ? `${rot} ${hex(startRva + i, 6)}` : `${rot} ?`;
   lines.push(`  off ${hex(startOff + i, 6)}  ${rva}  ${pad(hexs, 47)}  ${txt}`);
 }
 

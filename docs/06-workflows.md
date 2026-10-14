@@ -56,6 +56,20 @@ parser de PE na hora — foi o que aconteceu nas rodadas 8.1 e 8.2, com bug pró
 primeira vez. Confirmação black-box da resposta, quando o alvo é de console:
 `node scripts/diagnose-load.mjs <alvo> --stdin '<candidata>'`.
 
+### Alvo Linux (ELF) na triagem
+
+Os cinco comandos acima leem **PE e ELF** desde a rodada 8.3 (o alvo Linux recusava em todos
+eles com a mesma mensagem, "sem assinatura MZ"). O que muda no ELF:
+
+- o endereço que aparece na saída é o **vaddr de link** (absoluto, como no readelf/objdump),
+  não um RVA — é ele que você passa para `--rva`/`--section`/`--fim`;
+- o "código que roda antes do main" é `DT_INIT`/`DT_INIT_ARRAY` (o equivalente do TLS
+  callback do PE) e os imports são `DT_NEEDED` + os símbolos **indefinidos** do `.dynsym`;
+- **executar** o alvo no Windows não é possível: o loader aceita só PE e o erro dele é 193
+  (`ERROR_BAD_EXE_FORMAT`), **não** `0xC000007B` — `diagnose-load` diz isso e mostra o status
+  real. Sem WSL com distro instalada, o caminho é estático (triagem + `disasm-range` +
+  `pe-read`) e, para o que for não-linear, emulação (item 7 do Cenário 12).
+
 **Por quê antes de qualquer ferramenta pesada:** a resposta que decide o resto do
 plano é "este binário está empacotado/protegido ou é só lógica?". Se **não** houver
 proteção de carregamento, não existe dump, OEP nem IAT a reconstruir — o Cenário 1
@@ -450,7 +464,14 @@ campos o payload carrega).
    .data, duas máscaras vectorizadas, senha e flag obtidas sem abrir GUI.
 7. NÃO linear (hash, S-box, laço que lê memória)? Aí o caminho é emulação (Unicorn/Qiling)
    ou o debugger — e o registro que importa é o do valor que o alvo calcula, não o número
-   de tentativas.
+   de tentativas. **Antes de instalar emulador, veja se o não-linear está isolado**: se o
+   alvo tem um interpretador próprio (VM de bytecode, laço de máquina de pilha) e o
+   conjunto de operações dele é pequeno, transcrever os handlers dá um emulador de ~100
+   linhas que roda offline, com controle negativo. Caso medido: crackme-n3 (round 8.3) —
+   ELF64 com a senha cifrada em `.rodata` e um interpretador de 22 opcodes; os handlers
+   saíram do disassembly e o oráculo em Python resolveu. O que **não** se dispensa nesse
+   caminho: o modelo independente (forma fechada do bytecode) conferindo o mesmo resultado,
+   e o controle negativo recusando entrada errada.
 ```
 
 **Regra de higiene:** chaves, serials e qualquer material do alvo ficam em `work/`, fora

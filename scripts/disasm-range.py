@@ -1,6 +1,12 @@
 #!/usr/bin/env python3
 """
-disasm-range.py — lê o CÓDIGO de um PE sem abrir Ghidra nem o debugger.
+disasm-range.py — lê o CÓDIGO de um PE ou ELF sem abrir Ghidra nem o debugger.
+
+Formatos: **PE (Windows)** e **ELF (Linux)**. Um alvo ELF apareceu no round 8.3 e este
+script (como as outras ferramentas de leitura) morria em "sem assinatura MZ". O motor de
+desmontagem é o mesmo; o que mudou foi reconhecer o outro cabeçalho e normalizar as seções
+(as duas formas viram {nome, va, vs, raw, rs}), então `--section .text` e `--strings`
+funcionam igual nos dois. Em ELF o endereço é o vaddr de link (absoluto, como no objdump).
 
 Por que existe
 --------------
@@ -59,6 +65,10 @@ def _setup_console() -> None:
 try:
     from capstone import CS_ARCH_X86, CS_MODE_32, CS_MODE_64, Cs
     from capstone.x86 import X86_OP_MEM, X86_OP_REG, X86_REG_RIP
+    try:
+        from capstone import CS_ARCH_ARM64, CS_MODE_LITTLE_ENDIAN
+    except ImportError:                     # capstone antigo: só o caminho x86 fica disponível
+        CS_ARCH_ARM64 = None
 except ImportError:
     print("[!!] capstone não está instalado no Python desta máquina.", file=sys.stderr)
     print("     instale com:  python -m pip install --user capstone", file=sys.stderr)
@@ -68,9 +78,11 @@ except ImportError:
 
 def main() -> int:
     _setup_console()
-    ap = argparse.ArgumentParser(add_help=True, description="desmonta um intervalo de RVA de um PE")
+    ap = argparse.ArgumentParser(add_help=True, description="desmonta um intervalo de código de um PE ou ELF (RVA ou vaddr)")
     ap.add_argument("arquivo")
-    ap.add_argument("rva_ini", help="RVA inicial (aceita 0x...)")
+    # Obrigatório só quando não se usa --section: `--section .text` sozinho é o caso mais
+    # comum e exigia um RVA de enfeite na linha de comando (fricção medida no round 8.3).
+    ap.add_argument("rva_ini", nargs="?", default=None, help="RVA/vaddr inicial (aceita 0x...) — dispensável com --section")
     ap.add_argument("rva_fim", nargs="?", default=None, help="RVA final (opcional; default: fim da seção)")
     ap.add_argument("--fim", dest="fim_opt", default=None, help="RVA final (alternativa posicional)")
     ap.add_argument("--section", default=None, help="desmonta uma seção inteira pelo nome (ex.: .text)")
@@ -85,36 +97,96 @@ def main() -> int:
         print(f"[!!] não consegui ler {args.arquivo}: {e}", file=sys.stderr)
         return 2
 
-    if len(buf) < 0x40 or buf[0:2] != b"MZ":
-        print(f"[!!] {args.arquivo}: sem assinatura MZ — não é um PE", file=sys.stderr)
+    # ── formato: PE (Windows) ou ELF (Linux) ──────────────────────────────────
+    is_elf = len(buf) >= 0x40 and buf[0:4] == b"\x7fELF"
+    is_pe = len(buf) >= 0x40 and buf[0:2] == b"MZ"
+    if not is_pe and not is_elf:
+        print(f"[!!] {args.arquivo}: nem assinatura \"MZ\" (PE) nem \"\\x7fELF\" — formato não reconhecido", file=sys.stderr)
         return 2
     u16 = lambda o: int.from_bytes(buf[o:o + 2], "little")
     u32 = lambda o: int.from_bytes(buf[o:o + 4], "little")
-    pe = u32(0x3C)
-    if buf[pe:pe + 4] != b"PE\0\0":
-        print(f"[!!] {args.arquivo}: assinatura PE ausente em 0x{pe:x}", file=sys.stderr)
-        return 2
-    opt = pe + 24
-    is64 = u16(opt) == 0x20B
-    nsec, osz = u16(pe + 6), u16(pe + 20)
-    image_base = int.from_bytes(buf[opt + 24:opt + 32], "little") if is64 else u32(opt + 28)
+    u64 = lambda o: int.from_bytes(buf[o:o + 8], "little")
 
+    machine = None
     secs = []
-    for i in range(nsec):
-        s = pe + 24 + osz + i * 40
-        secs.append({
-            "name": buf[s:s + 8].rstrip(b"\0").decode("latin1"),
-            "va": u32(s + 12), "vs": u32(s + 8), "raw": u32(s + 20), "rs": u32(s + 16),
-        })
+    if is_pe:
+        pe = u32(0x3C)
+        if buf[pe:pe + 4] != b"PE\0\0":
+            print(f"[!!] {args.arquivo}: assinatura PE ausente em 0x{pe:x}", file=sys.stderr)
+            return 2
+        opt = pe + 24
+        is64 = u16(opt) == 0x20B
+        machine = u16(pe + 4)
+        nsec, osz = u16(pe + 6), u16(pe + 20)
+        image_base = int.from_bytes(buf[opt + 24:opt + 32], "little") if is64 else u32(opt + 28)
+        fmt = "PE"
+        for i in range(nsec):
+            s = pe + 24 + osz + i * 40
+            secs.append({
+                "name": buf[s:s + 8].rstrip(b"\0").decode("latin1"),
+                "va": u32(s + 12), "vs": u32(s + 8), "raw": u32(s + 20), "rs": u32(s + 16),
+            })
+    else:
+        # ELF: as seções viram o MESMO dicionário do PE ({name, va, vs, raw, rs}), então
+        # todo o resto do script (rva2off, --section, --fim, anotação de string) segue sem
+        # saber de qual formato veio. `va` aqui é o vaddr de link (absoluto) e a imagem é
+        # referenciada com base 0 — é assim que objdump/readelf mostram.
+        if buf[5] != 1:
+            print(f"[!!] {args.arquivo}: ELF big-endian (EI_DATA={buf[5]}) — este script lê little-endian", file=sys.stderr)
+            return 2
+        if buf[4] not in (1, 2):
+            print(f"[!!] {args.arquivo}: EI_CLASS={buf[4]} inválido", file=sys.stderr)
+            return 2
+        is64 = buf[4] == 2
+        machine = u16(18)
+        if is64:
+            shoff, shentsize, shnum, shstrndx = u64(0x28), u16(0x3A), u16(0x3C), u16(0x3E)
+        else:
+            shoff, shentsize, shnum, shstrndx = u32(0x20), u16(0x2E), u16(0x30), u16(0x32)
+        if shnum == 0 or shentsize == 0:
+            print(f"[!!] {args.arquivo}: ELF sem tabela de seções (stripped até nisso) — não sei onde está o código", file=sys.stderr)
+            return 2
+        raw = []
+        for i in range(shnum):
+            o = shoff + i * shentsize
+            if o + shentsize > len(buf):
+                break
+            raw.append({"name_off": u32(o), "type": u32(o + 4), "flags": u64(o + 8) if is64 else u32(o + 8),
+                        "addr": u64(o + 16) if is64 else u32(o + 12),
+                        "off": u64(o + 24) if is64 else u32(o + 16),
+                        "size": u64(o + 32) if is64 else u32(o + 20)})
+        shstr = raw[shstrndx] if shstrndx < len(raw) else None
+
+        def cname(off):
+            o = (shstr["off"] + off) if shstr else -1
+            if o < 0 or o >= len(buf):
+                return ""
+            e = buf.find(b"\0", o)
+            return buf[o:(e if e >= 0 else len(buf))].decode("latin1")
+
+        image_base = 0
+        fmt = "ELF"
+        for s in raw:
+            alloc = bool(s["flags"] & 0x2)          # SHF_ALLOC
+            nobits = s["type"] == 8                 # SHT_NOBITS: memória, não arquivo
+            secs.append({
+                "name": cname(s["name_off"]) or "(sem nome)",
+                "va": s["addr"] if alloc else -1,
+                "vs": s["size"], "raw": s["off"], "rs": 0 if nobits else s["size"],
+            })
 
     def rva2off(r):
         for s in secs:
+            if s["va"] < 0 or s["rs"] == 0:        # sem vaddr ou sem bytes no arquivo
+                continue
             if s["va"] <= r < s["va"] + max(s["vs"], s["rs"]):
                 return s["raw"] + (r - s["va"])
         return -1
 
     def section_of(r):
         for s in secs:
+            if s["va"] < 0 or s["rs"] == 0:
+                continue
             if s["va"] <= r < s["va"] + max(s["vs"], s["rs"]):
                 return s
         return None
@@ -134,8 +206,14 @@ def main() -> int:
         if not sec:
             print(f"[!!] seção {args.section} não existe (tem: {', '.join(s['name'] for s in secs)})", file=sys.stderr)
             return 2
+        if sec["va"] < 0 or sec["rs"] == 0:
+            print(f"[!!] seção {args.section} não está carregada / não tem bytes no arquivo (nada para desmontar)", file=sys.stderr)
+            return 2
         ini, fim = sec["va"], sec["va"] + min(sec["vs"], sec["rs"])
     else:
+        if args.rva_ini is None:
+            print("[!!] informe um endereço inicial ou use --section <nome>", file=sys.stderr)
+            return 2
         try:
             ini = int(args.rva_ini, 0)
         except ValueError:
@@ -158,12 +236,33 @@ def main() -> int:
             print(f"[!!] rva-fim (0x{fim:x}) tem de ser maior que o inicial (0x{ini:x})", file=sys.stderr)
             return 2
 
-    off_ini, off_fim = rva2off(ini), rva2off(fim)
+    off_ini = rva2off(ini)
+    off_fim = rva2off(fim)
+    if off_fim < 0:
+        # O fim de seção é EXCLUSIVO e cai no byte seguinte (o mapa trabalha com [início, fim)):
+        # `--section .text` monta exatamente esse valor, então tratá-lo como endereço fora do
+        # arquivo recusava o caso mais comum. Medido no round 8.3 (o ELF morreu em "intervalo
+        # não é legível" para `--section .text` inteira).
+        for s in secs:
+            if s["va"] >= 0 and s["rs"] > 0 and fim == s["va"] + max(s["vs"], s["rs"]):
+                off_fim = s["raw"] + s["rs"]
+                break
     if off_ini < 0 or off_fim < 0:
         print(f"[!!] intervalo 0x{ini:x}-0x{fim:x} não é legível no arquivo", file=sys.stderr)
         return 2
 
-    md = Cs(CS_ARCH_X86, CS_MODE_64 if is64 else CS_MODE_32)
+    # Arquitetura: x86 nos dois formatos; ARM64 se o capstone desta máquina tiver
+    # (o catálogo do toolkit usa x86; ARM64 é o outro `e_machine` que aparece na prática).
+    arm64_machines = {0xB7, 0xAA64}                 # EM_AARCH64 / IMAGE_FILE_MACHINE_ARM64
+    if machine in arm64_machines and CS_ARCH_ARM64 is not None:
+        md = Cs(CS_ARCH_ARM64, CS_MODE_LITTLE_ENDIAN)
+    elif machine in (0x03, 0x14C):                  # EM_386 / IMAGE_FILE_MACHINE_I386
+        md = Cs(CS_ARCH_X86, CS_MODE_32)
+    elif machine in (0x3E, 0x8664) or machine is None:
+        md = Cs(CS_ARCH_X86, CS_MODE_64)
+    else:
+        print(f"[!!] {args.arquivo}: e_machine/machine 0x{machine:x} não suportado por este script (x86, x86-64, ARM64)", file=sys.stderr)
+        return 2
     md.detail = True
     rows = []
     for ins in md.disasm(buf[off_ini:off_fim], image_base + ini):
@@ -191,11 +290,17 @@ def main() -> int:
     else:
         print("")
         print(f"UnboxRE — desmontagem estática: {args.arquivo}")
-        print(f"  ImageBase=0x{image_base:x} · intervalo rva 0x{ini:x}..0x{fim:x} · {len(rows)} instrução(ões)")
+        rotulo = "RVA" if fmt == "PE" else "vaddr"
+        print(f"  {fmt} · ImageBase=0x{image_base:x} · intervalo {rotulo} 0x{ini:x}..0x{fim:x} · {len(rows)} instrução(ões)")
         print("─" * 70)
         for r in rows:
             note = f"   ; {r['annotation']}" if r["annotation"] else ""
-            print(f"  0x{r['rva']:05x}  {r['bytes']:<22} {r['mnemonic']:<8} {r['op_str']}{note}")
+            # 24, não 22: uma instrução de 8 bytes ocupa 23 colunas de "xx " e estourava o
+            # campo, colando os bytes no mnemônico. Medido no round 8.3: a linha do
+            # `movzx eax, byte ptr [rsp + rcx + 0x260]` saiu sem o separador e uma extração
+            # por coluna (a minha, lendo esta saída) PERDEU a instrução — justamente numa das
+            # que decodificam o bytecode do alvo.
+            print(f"  0x{r['rva']:05x}  {r['bytes']:<24} {r['mnemonic']:<8} {r['op_str']}{note}")
         print("")
     return 0
 

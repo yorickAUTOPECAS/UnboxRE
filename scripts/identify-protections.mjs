@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * identify-protections.mjs — first-pass packer/protector triage for PE files.
+ * identify-protections.mjs — first-pass packer/protector triage for PE **and ELF** files.
  *
  * Why this exists
  * ---------------
@@ -26,8 +26,16 @@
  *          PROTEGIDO" — that false positive fired on powershell.exe (and every
  *          other managed binary) until this note and the verdict rule below.
  *
- * Usage: node scripts/identify-protections.mjs <file.exe> [--json]
- * Exit:  0 analysed (even if packed) · 2 could not read the file.
+ * ELF
+ * ---
+ * Added in round 8.3, after an ELF target was refused here with "not a PE". The same
+ * order of evidence applies, with the ELF equivalents: section names come from
+ * `.shstrtab` (so a stripped binary still names its sections), the W+X **LOAD segment**
+ * replaces the W+X section, the entry point outside any LOAD replaces EP outside .text,
+ * and `ptrace` in the dynamic strings is a Linux anti-debug signal worth reporting.
+ *
+ * Usage: node scripts/identify-protections.mjs <file[.exe]> [--json]
+ * Exit:  0 analysed (even if packed) · 2 could not read the file / unknown format.
  */
 
 import { readFileSync } from "node:fs";
@@ -37,7 +45,7 @@ const args = process.argv.slice(2);
 const JSON_OUT = args.includes("--json");
 const file = args.find((a) => !a.startsWith("--"));
 if (!file) {
-  console.error("uso: node scripts/identify-protections.mjs <arquivo.exe> [--json]");
+  console.error("uso: node scripts/identify-protections.mjs <arquivo> [--json]   (PE ou ELF)");
   process.exit(2);
 }
 
@@ -68,8 +76,154 @@ function shannonEntropy(bytes) {
 const findings = [];
 const add = (name, confidence, detail) => findings.push({ name, confidence, detail });
 
+// ── ELF (Linux) ──────────────────────────────────────────────────────────────
+// O escopo validado do toolkit é Windows, mas "está protegido? com o quê?" é a PRIMEIRA
+// pergunta de qualquer triagem — e um alvo ELF (round 8.3) não tinha caminho aqui: este
+// script saía em "não é um PE (sem assinatura MZ)", que não responde nada. A lógica é a
+// mesma (assinatura > estrutura > estatística) com os equivalentes de ELF: o segmento LOAD
+// gravável+executável no lugar da seção W+X, o entrypoint fora do LOAD no lugar do EP fora
+// de .text, e as seções vindo da .shstrtab.
+if (buf.length >= 0x40 && buf[0] === 0x7f && buf[1] === 0x45 && buf[2] === 0x4c && buf[3] === 0x46) {
+  if (buf[5] !== 1 || (buf[4] !== 1 && buf[4] !== 2)) {
+    console.error(`${file}: ELF não lido aqui (EI_CLASS=${buf[4]}, EI_DATA=${buf[5]}) — este script lê ELF32/ELF64 little-endian`);
+    process.exit(2);
+  }
+  const is64 = buf[4] === 2;
+  const u64 = (o) => Number(buf.readBigUInt64LE(o));
+  const eType = u16(16);
+  const eEntry = is64 ? u64(24) : u32(24);
+  const phoff = is64 ? u64(0x20) : u32(0x1c);
+  const phentsize = u16(is64 ? 0x36 : 0x2a);
+  const phnum = u16(is64 ? 0x38 : 0x2c);
+  const shoff = is64 ? u64(0x28) : u32(0x20);
+  const shentsize = u16(is64 ? 0x3a : 0x2e);
+  const shnum = u16(is64 ? 0x3c : 0x30);
+  const shstrndx = u16(is64 ? 0x3e : 0x32);
+  const SHF_WRITE = 0x1, SHF_ALLOC = 0x2, SHF_EXECINSTR = 0x4;
+
+  const shRaw = [];
+  for (let i = 0; i < shnum; i++) {
+    const o = shoff + i * shentsize;
+    if (o + shentsize > buf.length) break;
+    shRaw.push(is64
+      ? { nameOff: u32(o), type: u32(o + 4), flags: u64(o + 8), addr: u64(o + 16), off: u64(o + 24), size: u64(o + 32) }
+      : { nameOff: u32(o), type: u32(o + 4), flags: u32(o + 8), addr: u32(o + 12), off: u32(o + 16), size: u32(o + 20) });
+  }
+  const shstr = shRaw[shstrndx];
+  const nameAt = (off) => {
+    const o = shstr ? shstr.off + off : -1;
+    if (!(o >= 0 && o < buf.length)) return "";
+    let e = o;
+    while (e < buf.length && buf[e] !== 0) e++;
+    return buf.subarray(o, e).toString("latin1");
+  };
+  const elfSections = shRaw.map((s) => ({
+    name: nameAt(s.nameOff) || "(sem nome)",
+    virtualSize: s.size,
+    sizeRaw: s.type === 8 ? 0 : s.size,          // SHT_NOBITS (.bss): memória, não arquivo
+    virtualAddress: s.addr,
+    // .bss não tem byte nenhum no arquivo: entropia sobre bytes que não existem é ruído
+    // (a versão anterior deste branch imprimia 3.94 para um `.bss` vazio).
+    entropy: s.type === 8 ? 0 : Number(shannonEntropy(buf.subarray(s.off, s.off + Math.min(s.size, 0x40000))).toFixed(2)),
+    writable: !!(s.flags & SHF_WRITE),
+    executable: !!(s.flags & SHF_EXECINSTR),
+    rawSizeZero: s.type === 8,
+  }));
+
+  const segs = [];
+  for (let i = 0; i < phnum; i++) {
+    const o = phoff + i * phentsize;
+    if (o + phentsize > buf.length) break;
+    segs.push(is64
+      ? { type: u32(o), flags: u32(o + 4), off: u64(o + 8), vaddr: u64(o + 16), filesz: u64(o + 32), memsz: u64(o + 40) }
+      : { type: u32(o), off: u32(o + 4), vaddr: u32(o + 8), filesz: u32(o + 16), memsz: u32(o + 20), flags: u32(o + 24) });
+  }
+  const loads = segs.filter((s) => s.type === 1);
+  const inLoad = (a) => loads.some((s) => a >= s.vaddr && a < s.vaddr + s.memsz);
+
+  // ── assinaturas ──
+  const lowerNames = elfSections.map((s) => s.name.toLowerCase());
+  const text = buf.toString("latin1");
+  if (shnum === 0) {
+    add("Sem tabela de seções", "medium", "ELF sem section headers — o UPX (`--strip-sections`) e packers que reescrevem a imagem fazem exatamente isso; a triagem por nome de seção deixa de valer e sobra a via estrutural");
+  }
+  if (lowerNames.some((n) => n.includes("upx")) || /UPX!/.test(text)) {
+    add("UPX", "high", "seção UPX* ou marcador UPX! — packer UPX (o mesmo dos alvos PE; o binário empacotado traz um stub que desempacota em memória)");
+  }
+  if (lowerNames.includes(".vmp0") || lowerNames.includes(".vmp1") || /VMProtect/i.test(text)) {
+    add("VMProtect", "high", "seção .vmpN ou string VMProtect — proteção por virtualização");
+  }
+  if (/SHC_MARKER|shc_marker|shc_arc/i.test(text)) {
+    add("Shc (shell script compiler)", "medium", "marcadores do shc — script shell compilado em ELF (o código real é um script " +
+      "cifrado, não este binário)");
+  }
+
+  // ── estrutura ──
+  const wxLoads = segs.filter((s) => s.type === 1 && (s.flags & 2) && (s.flags & 1));
+  if (wxLoads.length) {
+    add("Segmento LOAD gravável E executável", "medium", `LOAD W+X em ${wxLoads.map((s) => `0x${s.vaddr.toString(16)}`).join(", ")} — compilador normal não emite isso; stub que se desempacota e VMProtect fazem`);
+  }
+  if (!inLoad(eEntry)) {
+    add("Entrypoint fora de qualquer LOAD", "medium", `e_entry=0x${eEntry.toString(16)} não cai em nenhum segmento carregado — só o loader do kernel roda assim`);
+  }
+  if (!segs.some((s) => s.type === 3)) {
+    add("Sem PT_INTERP", "info", "sem interpreter: binário estático (não é proteção — muda quem é o libc)");
+  }
+  if (!segs.some((s) => s.type === 2)) {
+    add("Sem PT_DYNAMIC", "info", "sem .dynamic: estático ou já reescrito por um packer (cruze com as seções)");
+  }
+  const highEnt = elfSections.filter((s) => s.entropy >= 7.2 && s.sizeRaw > 0);
+  if (highEnt.length) {
+    add("Alta entropia", "low", `seções com entropia >= 7.2: ${highEnt.map((s) => s.name).join(", ")} — dado comprimido/cifrado (em ELF, `.rodata` de tabela também entra aqui)`);
+  }
+  if (!lowerNames.includes(".symtab")) {
+    add("Sem .symtab", "info", "stripped: os nomes de função/símbolo não estão no arquivo; a leitura vem do disassembly (ptrace/anti-debug também conta com isso)");
+  }
+  if (/\bptrace\b/.test(text)) {
+    add("Importa ptrace", "medium", "o binário chama `ptrace` — anti-debug clássico em Linux (PTRACE_TRACEME faz o próprio processo recusar um depurador já anexado)");
+  }
+
+  const notable = findings.filter((f) => f.confidence !== "info");
+  const packed = findings.some((f) => f.confidence === "high");
+  const MACH = { 0x03: "x86", 0x3e: "x64", 0x28: "ARM", 0xb7: "ARM64", 0xf3: "RISC-V" }[u16(18)] ?? `0x${u16(18).toString(16)}`;
+  const TYPE = { 1: "ET_REL", 2: "ET_EXEC", 3: "ET_DYN (PIE/shared)", 4: "ET_CORE" }[eType] ?? `e_type=0x${eType.toString(16)}`;
+  const report = {
+    file: basename(file),
+    size: buf.length,
+    format: is64 ? "ELF64" : "ELF32",
+    type: TYPE,
+    machine: MACH,
+    entryPoint: `0x${eEntry.toString(16)}`,
+    sections: elfSections.map((s) => ({ name: s.name, virtualSize: s.virtualSize, rawSize: s.sizeRaw, entropy: s.entropy, flags: `${s.writable ? "W" : "-"}${s.executable ? "X" : "-"}` })),
+    segments: segs.map((s) => ({ type: s.type, vaddr: `0x${s.vaddr.toString(16)}`, filesz: s.filesz, memsz: s.memsz, perms: `${s.flags & 4 ? "R" : "-"}${s.flags & 2 ? "W" : "-"}${s.flags & 1 ? "X" : "-"}` })),
+    findings,
+    verdict: notable.length === 0 ? "sem assinatura conhecida" : packed ? "PROVAVELMENTE PROTEGIDO" : "possivelmente incomum",
+  };
+
+  if (JSON_OUT) {
+    console.log(JSON.stringify(report, null, 2));
+    process.exit(0);
+  }
+  console.log("");
+  console.log(`UnboxRE — triagem de proteção: ${report.file}`);
+  console.log("─".repeat(66));
+  console.log(`  tamanho: ${report.size} bytes · ${report.format} · ${report.type} · arq: ${report.machine} · entrypoint: ${report.entryPoint}`);
+  console.log(`  segmentos (program headers): ${segs.length} · seções: ${elfSections.length}`);
+  console.log("  seções:");
+  for (const s of report.sections) {
+    console.log(`    ${s.name.padEnd(10)} virt=${String(s.virtualSize).padEnd(8)} raw=${String(s.rawSize).padEnd(8)} entropia=${s.entropy} ${s.flags}`);
+  }
+  console.log("");
+  const tag = { high: "!!", medium: "? ", low: "? ", info: "i " };
+  for (const f of report.findings) console.log(`  [${tag[f.confidence] ?? "? "}] ${f.name} (${f.confidence}) — ${f.detail}`);
+  if (report.verdict === "sem assinatura conhecida") console.log("  [ok] nenhuma assinatura de packer/protetor conhecida.");
+  console.log(`\n  Veredito: ${report.verdict}`);
+  console.log("");
+  process.exit(0);
+}
+
 if (u16(0) !== 0x5a4d) {
-  console.error(`${file}: não é um PE (sem assinatura MZ)`);
+  console.error(`${file}: nem assinatura "MZ" (PE) nem "\\x7fELF" — formato não reconhecido`);
   process.exit(2);
 }
 const peOff = u32(0x3c);

@@ -44,7 +44,16 @@
  * `--stdin` + a saída capturada, ele passa a ser um harness black-box de linha de comando
  * (o que antes exigia `printf senha | alvo.exe` na mão).
  *
- * Uso: node scripts/diagnose-load.mjs <arquivo.exe> [--no-run] [--stdin <texto>]
+ * Alvo ELF (Linux) — adicionado no round 8.3
+ * ------------------------------------------
+ * Um ELF não é imagem que o loader do Windows aceite: `CreateProcess` falha com 193
+ * (`ERROR_BAD_EXE_FORMAT`), que NÃO é `0xC000007B` — confundir os dois ("deve ser a
+ * virtualização"/"deve ser relocação") manda a investigação para o lado errado. Para ELF o
+ * script não procura vício de loader: ele diz o formato, dá o status real da execução e
+ * aponta os caminhos (Linux nativo, WSL com distro, emulação) — as três ferramentas de
+ * leitura do toolkit já leem ELF.
+ *
+ * Uso: node scripts/diagnose-load.mjs <arquivo> [--no-run] [--stdin <texto>]
  *         [--stdin-file <arquivo>] [--no-output] [--json]
  * Exit: 0 analisado e o alvo carregou (ou --no-run) · 1 o loader rejeitou (inclusive
  *       quando o `CreateProcess` falha, ex. `EFTYPE`/193 = ERROR_BAD_EXE_FORMAT, que é o
@@ -93,8 +102,85 @@ try {
   console.error(`não consegui ler ${file}: ${e.message}`);
   process.exit(2);
 }
+// ── ELF (Linux) ──────────────────────────────────────────────────────────────
+// Pergunta parecida, resposta CURTA e verificável: um ELF não é imagem que o loader do
+// Windows aceite, então `0xC000007B` não é o erro dele — o `CreateProcess` falha antes, com
+// 193 (`ERROR_BAD_EXE_FORMAT`). Confundir os dois manda a investigação para o lado errado
+// (medido no round 8.3: o alvo era ELF e a leitura apressada seria "loader/relocação").
+// Este branch dá o status REAL executando o alvo (a menos que --no-run) e diz o que fazer.
+if (buf.length >= 0x40 && buf[0] === 0x7f && buf[1] === 0x45 && buf[2] === 0x4c && buf[3] === 0x46) {
+  const u16e = (o) => buf.readUInt16LE(o);
+  const u32e = (o) => buf.readUInt32LE(o);
+  const u64e = (o) => Number(buf.readBigUInt64LE(o));
+  const is64e = buf[4] === 2;
+  const TYPE = { 1: "ET_REL", 2: "ET_EXEC", 3: "ET_DYN (PIE/shared)", 4: "ET_CORE" }[u16e(16)] ?? `e_type=0x${u16e(16).toString(16)}`;
+  const MACH = { 0x03: "x86", 0x3e: "x64", 0x28: "ARM", 0xb7: "ARM64", 0xf3: "RISC-V" }[u16e(18)] ?? `0x${u16e(18).toString(16)}`;
+  const entry = is64e ? u64e(24) : u32e(24);
+  const findings = [
+    { level: "high", code: "formato-nao-carregavel-no-windows", detail: `é ELF (${is64e ? "ELF64" : "ELF32"}, ${TYPE}, ${MACH}, entry 0x${entry.toString(16)}) — o loader do Windows só carrega PE; o erro dele é 193 (ERROR_BAD_EXE_FORMAT), NÃO 0xC000007B` },
+    { level: "info", code: "0xc000007b-nao-se-aplica", detail: "0xC000007B é o loader rejeitando uma imagem PE malformada; aqui não há PE nenhum para rejeitar, então investigar relocação/DYNAMIC_BASE/estado de carga deste arquivo não leva a nada" },
+    { level: "info", code: "caminhos", detail: "para EXECUTAR: Linux nativo, WSL com distro instalada (`wsl --install -d Ubuntu` — exige elevação e rede) ou emulação (Unicorn/Qiling, Cenário 12 de docs/06-workflows.md). Sem isso o caminho é estático — e as três ferramentas de leitura do toolkit já leem ELF (triage-static.mjs, disasm-range.py, pe-read.mjs)" },
+  ];
+  const run = { skipped: NO_RUN, exit: null, hex: null, meaning: null, output: null, error: null, stdin: stdinData !== null ? { fed: true, bytes: Buffer.byteLength(stdinData) } : { fed: false } };
+  if (!NO_RUN) {
+    const r = spawnSync(file, [], { input: stdinData ?? undefined, encoding: "utf8", timeout: 10000, windowsHide: true });
+    const clean = (s) => String(s ?? "").replace(/\r/g, "").replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, "");
+    const output = `${clean(r.stdout)}${clean(r.stderr)}`;
+    const status = typeof r.status === "number" ? r.status : null;
+    run.exit = status;
+    run.hex = status === null ? null : `0x${status.toString(16)}`;
+    run.error = r.error ? `${r.error.code ?? ""} ${r.error.message}`.trim() : null;
+    // Duas recusas DIFERENTES, e confundi-las é fácil (medido no round 8.3): sem extensão
+    // `.exe`, o Node/libuv procura `<nome>.exe` e devolve ENOENT — isso é a busca do nome, não
+    // o loader lendo a imagem. Com `.exe`, o `CreateProcess` tenta carregar e devolve um erro
+    // sem código específico (UNKNOWN) que é o ERROR_BAD_EXE_FORMAT dos bastidores.
+    const semExe = !file.toLowerCase().endsWith(".exe");
+    run.meaning = r.error
+      ? r.error.code === "ENOENT" && semExe
+        ? 'o arquivo não tem extensão .exe: o Node procura "<nome>.exe" e não acha (ENOENT) — é a busca do nome, NÃO a recusa do loader; copie para um nome com .exe para ver a recusa real'
+        : `CreateProcess recusou a imagem (${r.error.code ?? "erro"}; no Windows isso é ERROR_BAD_EXE_FORMAT/193) — é isto que "não carrega" significa para um ELF`
+      : status === 0 ? "saiu normalmente com status 0"
+      : `saiu com status ${status}${status === 193 ? " (193 = ERROR_BAD_EXE_FORMAT: não é imagem Win32 válida)" : ""}`;
+    if (status === 193 || (r.error && !(r.error.code === "ENOENT" && semExe))) {
+      findings.push({ level: "medium", code: "execucao-recusada", detail: `executar no Windows falhou como esperado para um ELF — ${run.meaning}` });
+    }
+  }
+  const verdict = "não é imagem do loader do Windows (ELF) — nada no arquivo para consertar visando o Windows; rodar exige Linux, WSL com distro ou emulação";
+  const report = {
+    file: basename(file), size: buf.length, format: is64e ? "ELF64" : "ELF32", type: TYPE, machine: MACH,
+    entryPoint: `0x${entry.toString(16)}`, findings, run, verdict,
+  };
+  if (JSON_OUT) {
+    console.log(JSON.stringify(report, null, 2));
+  } else {
+    console.log("");
+    console.log(`UnboxRE — diagnóstico de carga: ${report.file}`);
+    console.log("─".repeat(70));
+    console.log(`  ${report.size} bytes · ${report.format} · ${report.type} · ${report.machine} · entry=0x${entry.toString(16)}`);
+    console.log("");
+    const tag = { high: "!!", medium: "? ", info: "i " };
+    for (const f of findings) console.log(`  [${tag[f.level]}] ${f.code} — ${f.detail}`);
+    if (run.skipped) console.log("  [i ] run — pulado (--no-run)");
+    else {
+      const stdinInfo = run.stdin?.fed ? ` · stdin alimentado (${run.stdin.bytes} bytes)` : " · stdin: EOF (sem --stdin)";
+      console.log(`  [i ] run — exit=${run.hex ?? "(nenhum)"} (${run.meaning})${stdinInfo}`);
+      if (!NO_OUTPUT) {
+        if (!run.output) console.log("  [i ] saída do alvo — (stdout+stderr vazios)");
+        else {
+          const lines = run.output.split(/\n/).filter((l) => l.trim() !== "");
+          console.log(`  [i ] saída do alvo (${lines.length} linha(s)):`);
+          for (const l of lines.slice(0, 8)) console.log(`        | ${l.slice(0, 200)}`);
+        }
+      }
+    }
+    console.log(`\n  Veredito: ${verdict}`);
+    console.log("");
+  }
+  process.exit(NO_RUN ? 0 : run.error || (run.exit !== null && run.exit !== 0) ? 1 : 0);
+}
+
 if (buf.length < 0x40 || buf.readUInt16LE(0) !== 0x5a4d) {
-  console.error(`${file}: não é um PE (sem assinatura MZ)`);
+  console.error(`${file}: nem assinatura "MZ" (PE) nem "\\x7fELF" — formato não reconhecido`);
   process.exit(2);
 }
 const u16 = (o) => buf.readUInt16LE(o);
