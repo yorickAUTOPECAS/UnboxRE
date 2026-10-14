@@ -482,4 +482,18 @@ Nenhuma ferramenta de terceiros entrou nesta rodada (as mudanças são nos scrip
 projeto, MIT), então o job `licenses` não tem linha nova para revalidar — `verify-licenses.mjs`
 local, na §7, deu 79/79.
 
-<!-- CI-RUN -->
+Commit desta rodada: `622a525`. Run
+[38621196712](https://github.com/yorickAUTOPECAS/UnboxRE/actions/runs/38621196712) — **verde**,
+4/4 jobs (medido com `gh run watch --exit-status`, exit 0):
+
+```console
+✓ Documentação e estrutura in 15s
+✓ Scan de segredos e binários in 13s
+✓ Licenças contra a fonte primária in 30s
+✓ Ponte MCP do REA sobe e responde in 15s
+```
+
+A barreira de `work/` (nada de terceiros/alvo no Git) passou com o caso novo presente no disco
+— o diretório é gitignored e continua fora do repositório, como o contrato exige. As anotações
+do run são só os avisos de depreciação do Node 20 nos `actions/*`, que já valem para os runs
+anteriores e não são deste commit.
