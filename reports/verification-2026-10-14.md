@@ -941,9 +941,52 @@ $ gh run view 38597678303 --json jobs
   success  Ponte MCP do REA sobe e responde
 ```
 
+**O terceiro commit também ficou vermelho no mesmo ponto** — o único job que falha é o que faz
+HTTP a hosts de terceiros, e sempre na mesma linha. Run
+[38600190104](https://github.com/yorickAUTOPECAS/UnboxRE/actions/runs/38600190104) (`3022d93`):
+
+```console
+  success Scan de segredos e binários
+  success Documentação e estrutura
+  failure Licenças contra a fonte primária
+  success Ponte MCP do REA sobe e responde
+
+  !! API Monitor     declara LicenseRef-Freeware-Rohitab raw:n/a        api:n/a
+       · não consegui ler o LICENSE: HTTP 503
+  [FAIL] API Monitor: falha de rede lendo http://www.rohitab.com/apimonitor
+##[error]Process completed with exit code 1.
+```
+
+**O host é que oscila, medido dos dois lados** (evidência bruta em `work/.ci/host-flakiness.txt`):
+
+```console
+# da minha máquina, 10 probes seguidos em http://www.rohitab.com/apimonitor:
+  probe  1..10 -> HTTP 200   (todos)
+# minutos antes, na mesma máquina, 5 probes:
+  probe 1,2,3 -> HTTP 000   probe 4 -> HTTP 200   probe 5 -> HTTP 000
+# e do runner do GitHub, 3 execuções do job: HTTP 503 · "fetch failed" · HTTP 503
+```
+
+Ou seja: a fonte primária dessa **uma** declaração (API Monitor, freeware da Rohitab) responde de
+forma intermitente — 200 para a minha rede, 503/erro de conexão para o runner e, às vezes, para
+mim também (`HTTP 000` = sem resposta). Repetindo o job do **mesmo SHA**, ele passa: o gate não é
+determinístico por causa de um site de terceiro, não por causa do código.
+
 **Leitura:** o `verify-licenses.mjs` **falha de propósito** quando não consegue ler a fonte
 primária (é a regra nº 5 do projeto: toda afirmação de licença vem da fonte primária) — o efeito
 colateral é que a indisponibilidade de um site de terceiro pinta o CI de vermelho mesmo com o
 código intacto. A hipótese de *rate limit* de API entre os dois pushes não se sustenta: a falha
-foi sempre na **mesma** linha, do único job que faz requisição HTTP a hosts de terceiros, e o
-re-run imediato do mesmo SHA passou. Nota registrada, **não** é defeito da rodada.
+foi sempre na **mesma** linha, do único job que faz requisição HTTP a hosts de terceiros.
+
+**Fechamento:** o commit mais recente em `main` (`3022d93`) está **verde nos 4 jobs** depois de
+re-executar só o job de licenças —
+[run 38600190104](https://github.com/yorickAUTOPECAS/UnboxRE/actions/runs/38600190104):
+`success Licenças contra a fonte primária · success Documentação e estrutura · success Scan de
+segredos e binários · success Ponte MCP do REA sobe e responde`.
+
+> **Limitação declarada (não resolvida nesta rodada):** o job de licenças depende de um host
+> instável e por isso pode ficar vermelho sem nenhum defeito no repositório. Não mascarei isso
+> mexendo no gate: as afirmações de licença continuam vindo da fonte primária e o script continua
+> falhando quando não consegue lê-la. A decisão de tornar o gate resiliente a 5xx transitório
+> (retry com backoff, sem afrouxar a verificação) é do dono do projeto — está registrada aqui
+> como pendência com a medição que a justifica.
