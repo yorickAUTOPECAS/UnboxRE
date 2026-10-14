@@ -33,6 +33,7 @@ cp acme.exe ../unpacked/acme.work.exe
 ```bash
 # 3) Triagem ESTÁTICA — nenhum destes abre GUI, debugger ou Ghidra
 cd ../..   # raiz do toolkit
+node scripts/triage-archive.mjs work/acme-app-2.1/unpacked/acme.work.pkg        # é CONTAINER (zip/pyz/whl)? o que tem dentro?
 node scripts/identify-protections.mjs work/acme-app-2.1/unpacked/acme.work.exe   # está empacotado? com o quê?
 node scripts/triage-static.mjs work/acme-app-2.1/unpacked/acme.work.exe --refs   # o que ele é: TLS, imports, strings e onde são usadas
 node scripts/diagnose-load.mjs work/acme-app-2.1/unpacked/acme.work.exe          # ele carrega? (0xC000007B)
@@ -69,6 +70,22 @@ eles com a mesma mensagem, "sem assinatura MZ"). O que muda no ELF:
   (`ERROR_BAD_EXE_FORMAT`), **não** `0xC000007B` — `diagnose-load` diz isso e mostra o status
   real. Sem WSL com distro instalada, o caminho é estático (triagem + `disasm-range` +
   `pe-read`) e, para o que for não-linear, emulação (item 7 do Cenário 12).
+
+### Alvo que não é imagem (container, `.pyc`, marshal)
+
+Os cinco comandos acima leem **formatos de imagem**. Se o alvo for um **container** — zipapp,
+`.whl`, `.jar`, `.nupkg` —, quem responde primeiro é
+`node scripts/triage-archive.mjs <alvo>`: ele reconhece ZIP e zipapp (preâmbulo de shebang), `.pyc`
+e payload **marshal** de code object, lista os membros com o **formato de cada um** por assinatura
+e traz a **dica de ABI** (`python3.13`, `PyInit_*`) do interior dos membros nativos.
+
+Essa dica é o que decide a rodada quando o programa vem em **marshal**: marshal não tem cabeçalho de
+versão, então `marshal.loads()` com o interpretador errado **não dá erro** — devolve code object
+corrompido e o processo morre com *access violation*. Medido no round 8.4 (o mesmo payload: 3.11 e
+3.12 → exit 139 sem mensagem; 3.13 → desmonta). Escolha o interpretador pela dica **antes** de tentar
+carregar. Os membros ELF/PE que saírem do container entram direto nos leitores de imagem
+(`triage-static`, `disasm-range`, `pe-read`); um membro ELF de extensão do CPython, porém, **não
+carrega no Windows** (erro 193) — rodar exige Linux/WSL.
 
 **Por quê antes de qualquer ferramenta pesada:** a resposta que decide o resto do
 plano é "este binário está empacotado/protegido ou é só lógica?". Se **não** houver

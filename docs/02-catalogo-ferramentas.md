@@ -560,6 +560,35 @@ x64dbg descarta em silêncio), e o dump passa a ser conferido mesmo sem original
 - **Quando usar:** binários Go/Rust (cada vez mais comuns) — ambos são *muito* diferentes de C/C++ na análise.
 - **Por quê:** sem recuperar símbolos, um binário Go é uma parede de `sub_401000`.
 
+### d.10 Python empacotado (zipapp · `.pyc` · marshal) `✅ do toolkit` — `MIT`
+
+- **O que faz:** [`scripts/triage-archive.mjs`](../scripts/triage-archive.mjs) responde "o que É este
+  container, e o que tem dentro": reconhece **ZIP** e **zipapp** (preâmbulo de shebang antes do
+  primeiro `PK\x03\x04` — o container é achado pelo diretório central, não pela assinatura no byte 0),
+  `.pyc` (magic + `\r\n` + flags) e payload **marshal** de code object (`0x63`/`0xE3`). Lista os
+  membros com tamanho, método (store/deflate), CRC e entropia, e diz **o formato de cada um** por
+  assinatura: PE, ELF, ZIP aninhado, fonte Python, marshal, manifest/pickle.
+- **O dado que decide a rodada: a dica de ABI.** O script varre o interior dos membros nativos e
+  reporta `python3.13`, `PyInit_*`, `cp313-*`. Num alvo que é **marshal**, é isso que diz de qual
+  interpretador o payload é — e sem isso não há como saber, porque marshal **não tem cabeçalho de
+  versão**: `marshal.loads()` com a versão errada **não dá erro**, devolve um code object corrompido
+  e o processo morre com *access violation* (medido no round 8.4, o mesmo payload em 3.11 e 3.12 →
+  exit 139, sem mensagem; em 3.13 → 9.658 instruções decodificadas).
+- **Quando usar:** primeiro comando quando o alvo **não** é imagem (PE/ELF). Se for imagem, quem
+  responde é `triage-static.mjs` — e o script diz isso no erro em vez de só recusar.
+- **Como usar:**
+  ```bash
+  $ node scripts/triage-archive.mjs alvo.pyz                # zipapp, membros e formatos
+  $ node scripts/triage-archive.mjs app.whl --json           # .whl/.jar/.nupkg são ZIP
+  $ node scripts/triage-archive.mjs module.pyc               # magic + flags do bytecode compilado
+  ```
+- **Integração:** os endereços continuam sendo trabalho de `triage-static`/`disasm-range`/`pe-read`
+  (os membros ELF/PE do container entram direto neles); para o payload marshal, o caminho é o
+  **interpretador da versão da dica de ABI** (round 8.4: `marshal` + `dis`, sem abrir debugger).
+- **Por quê:** em quatro rodadas o alvo mudou de formato três vezes (PE → ELF → zipapp Python). O
+  toolkit agora responde "isto é container? de quê? com o quê dentro?" antes de qualquer ferramenta
+  pesada — e é isso que evita a rodada inteira morrer em "formato não reconhecido".
+
 ---
 ## 6. Domínio (e) — Reconstrução e patching
 
