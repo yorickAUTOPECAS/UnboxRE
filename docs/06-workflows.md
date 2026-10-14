@@ -37,7 +37,24 @@ node scripts/identify-protections.mjs work/acme-app-2.1/unpacked/acme.work.exe  
 node scripts/triage-static.mjs work/acme-app-2.1/unpacked/acme.work.exe --refs   # o que ele é: TLS, imports, strings e onde são usadas
 node scripts/diagnose-load.mjs work/acme-app-2.1/unpacked/acme.work.exe          # ele carrega? (0xC000007B)
 python scripts/disasm-range.py work/acme-app-2.1/unpacked/acme.work.exe 0x1520 --fim 0x15b4 --strings   # ~100 bytes de código
+node scripts/pe-read.mjs work/acme-app-2.1/unpacked/acme.work.exe --rva 0x4000 --len 16               # e o que TEM nesse endereço?
+node scripts/triage-static.mjs work/acme-app-2.1/unpacked/acme.work.exe --data-refs                  # que CONSTANTES o código lê?
 ```
+
+`--data-refs` responde a pergunta que vem antes de ler o código linha a linha: a checagem
+compara com o quê? Ele lista os alvos de dados (que não são string) referenciados pelo código,
+com o tipo heurístico de cada um — `máscara` (só `00`/`ff`, o `movdqa` típico), `inteiro
+pequeno` (semente/contador em `.data`), `ponteiro/tabela` (a do CRT, ruído) — e os bytes de
+cada alvo. Medido no round 8.2: as duas máscaras do pipeline SSE e a semente `0x1337`
+apareceram **sem** ler o disassembly à mão.
+
+O último comando fecha o ciclo que o `disasm-range.py` abre: ele termina as linhas com
+`; -> rva 0x4000` ou `"texto"`, e `pe-read.mjs` mostra **o conteúdo** daquele RVA (hexdump +
+leitura tipada: a semente `u32` que o `imul` multiplica, a máscara de 16 bytes que o
+`movdqa` carrega, os 8 bytes que o `movabs` compara). Sem ele o caminho era escrever um
+parser de PE na hora — foi o que aconteceu nas rodadas 8.1 e 8.2, com bug próprio na
+primeira vez. Confirmação black-box da resposta, quando o alvo é de console:
+`node scripts/diagnose-load.mjs <alvo> --stdin '<candidata>'`.
 
 **Por quê antes de qualquer ferramenta pesada:** a resposta que decide o resto do
 plano é "este binário está empacotado/protegido ou é só lógica?". Se **não** houver
@@ -425,6 +442,15 @@ campos o payload carrega).
 3. Se online: capture o request (Cenário 6) → veja o payload e a resposta
 4. Se offline: leia o algoritmo (hash? RSA? chave simétrica embutida?)
 5. Documente: quais campos, qual formato, qual expiração
+6. Checagem LINEAR (XOR/shift/máscara byte a byte)? NÃO precisa de emulador nem debugger:
+   leia as constantes (disasm-range.py + pe-read.mjs + triage-static --data-refs) e monte o
+   sistema em Python — cada byte de saída é "XOR de um subconjunto dos bytes digitados" ^
+   constante, e isso se resolve por eliminação sobre GF(2). Confirme com o alvo
+   (diagnose-load.mjs --stdin). Caso medido: crackme-n2 (round 8.2) — 14 bytes, semente em
+   .data, duas máscaras vectorizadas, senha e flag obtidas sem abrir GUI.
+7. NÃO linear (hash, S-box, laço que lê memória)? Aí o caminho é emulação (Unicorn/Qiling)
+   ou o debugger — e o registro que importa é o do valor que o alvo calcula, não o número
+   de tentativas.
 ```
 
 **Regra de higiene:** chaves, serials e qualquer material do alvo ficam em `work/`, fora

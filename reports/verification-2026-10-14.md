@@ -1057,3 +1057,15 @@ que foi corrigido em cada ponto e o que continua em aberto — está em
 Ghidra nem debugger, e o caminho que faltava para isso (`triage-static.mjs`,
 `disasm-range.py`, `diagnose-load --stdin`, probe de **módulo Python** para o capstone)
 entrou no toolkit nesta rodada.
+
+---
+
+## 11. Round 8.2 — segundo alvo real (ponteiro)
+
+O alvo seguinte da pasta `Alvos` (`nivel 2`: `My_Second_Crackme.exe`, 14 KB, MinGW x64, console,
+**sem** proteção de carregamento) tinha a checagem vetorizada em SSE2 — resolvido sem GUI, com
+senha e flag confirmadas pelo binário, e com **dois defeitos reais corrigidos no toolkit**:
+`scripts/pe-read.mjs` (novo: ler os bytes de uma RVA) e `triage-static.mjs` (o detector de
+referências perdia toda instrução com prefixo `66`/`F2`/`F3` — justamente as que carregam
+constantes — e ganhou `--data-refs`). Relatório completo:
+[round-8-2-nivel-2.md](round-8-2-nivel-2.md).
