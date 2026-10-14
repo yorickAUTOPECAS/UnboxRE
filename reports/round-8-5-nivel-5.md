@@ -13,8 +13,8 @@ ser avaliada pelo alvo).
 | Packer/protetor | **nenhum** (sem assinatura de packer; sem vice de loader): `identify-protections` e `diagnose-load` limpos |
 | Lógica | **não-linear**: VM própria (registradores + bytecode de 71 palavras) sobre a entrada |
 | Gate | `digest(entrada) == 0x2A8FADFD62AD902E` em RVA `0x46e8`, **+ anti-timing** `rdtsc` que seta flag em RVA `0x4abe0` |
-| Resposta | **flag obtida** (blob de 39 bytes, formato `CMO{...}`) por patch do gate; **senha não fechada** (limitação declarada na §6) |
-| Fricção → correção | instrumento de instrumentação promovido a `scripts/park-patch-run.ps1` (§5) |
+| Resposta | **flag obtida** (blob de 39 bytes, formato `CMO{...}`) por patch do gate; **senha não fechada** — o defeito do modelo foi *localizado* no laço de ops (§4), não eliminado |
+| Fricção → correção | instrumento de instrumentação promovido a `scripts/park-patch-run.ps1` (§5), com **7 armadilhas** medidas e embutidas — duas delas defeitos **da própria ferramenta**, achados no smoke dela (§6) |
 
 ---
 
@@ -84,6 +84,12 @@ blob decifrado de 39 bytes fica na memória do processo congelado (`captures/mem
 `20261014-508`/`509` (patch do prologo `movabs rax,<const>; ret` → caminho do flag) e os
 `HIT VA …[+] flag:` de `20261014-506`.
 
+**Como o fold recebe os registradores (medido):** o fold lê os quatro de **argumentos na pilha** —
+`mov rax,[rsp+0x20]` … `mov rcx,[rsp+0x38]` (desmonte `0x8333`..`0x8347`), isto é `r0..r3` no
+5º..8º argumento (padrão Windows x64). Isso permitiu medi-los **no instante do fold** com um stub
+próprio (`-HookStub`, template que grava `r0..r3` e um ponteiro para a área, §3) — a medição que
+localizou o defeito do modelo (§4).
+
 ---
 
 ## 3. O instrumento: congelar, patchar, alimentar e **ler**
@@ -128,6 +134,14 @@ Isso estava sendo contado como "o alvo rejeitou a senha" — não era: era o **t
 4. **Cada modo de hook precisa de área própria**: `-HookCall`, `-HookPos` e `-HookStub` escrevem em
    momentos diferentes; com a mesma scratch, o último apaga o anterior (medido: seed lido como 0).
 5. **Rejeição pode ser transporte, não senha** — ver acima (§3).
+6. **O instrumento também tem de ser medido.** O smoke da ferramenta (§6) pegou dois defeitos *nela*:
+   o `-HookStub` e o `-HookSeed` montavam o stub com a área do `-HookCall` — usados **sozinhos**
+   escreviam no **endereço 0** (`0xC0000005` no alvo, e leitura de zeros com o sintoma enganoso
+   "o hook não pegou") — e a leitura escolhia **uma** área só (com `-HookPos` + `-HookStub` juntos,
+   um dos valores sumia da saída). Corrigidos: cada hook tem a sua área e a ferramenta **lê todas**.
+7. **Modo não declarado é modo inexistente.** O `-HookSeed` tinha bloco no script e **não** estava
+   no `param()`: chamá-lo dava *"parameter cannot be found"*, e assim a medição que produziu o seed
+   desta rodada não era reproduzível pela ferramenta promovida. Declarado (e conferido no smoke).
 
 ---
 
@@ -145,14 +159,34 @@ Isso estava sendo contado como "o alvo rejeitou a senha" — não era: era o **t
 | gate + anti-timing | desmonte de `0x45d6`..`0x46f1` (flag em `0x4abe0`, decoy `0xdeadbeefcafef00d`) |
 | flag | patch do gate → alvo decifra e imprime; blob de 39 B na memória congelada |
 
-**Não fechado (limitação declarada, sem maquiagem):** o **digest medido** do alvo não bate com
-**duas implementações independentes** — o modelo (`work/crackme-n5/scripts/n5-vm.py`) e uma
-transcrição literal feita a partir do desmonte (`work/crackme-n5/scripts/n5-maq.py`, cada bloco
-citando a instrução de origem). As duas concordam **entre si** e com o seed medido, e divergem do
-valor que o alvo compara. Logo: há um componente do cálculo que ainda não está no modelo (o
-candidato mais provável é a *entrada* que a VM realmente digere num caso de 32 bytes, onde o
-caminho de preparação já mostrou que devolve `len` diferente do enviado). Sem isso, **a inversão da
-senha não fecha** — e não vou apresentar a senha do modelo como se fosse a do alvo.
+**Onde exatamente o modelo erra (medido nesta rodada, não inferido):** com o instrumento funcionando,
+mediu-se o estado da máquina **no instante do fold** para a entrada `"A"` e comparou-se com o
+modelo. O seed já era idêntico; agora dá para ver *onde* diverge:
+
+```console
+$ powershell -File scripts/park-patch-run.ps1 -Target <alvo> -Entrada 'A' \
+      -FreezeIat 'exit=0x46644' \
+      -HookStub '0x8333=49BB{scratch}4D891B488B44242849894308488B44243049894310488B44243849894318488B44244049894320{orig}C3'
+    +0x00..+0x80 (16 qwords): <scratch>  0x9f4545e5e82a175a  0xb04846b6876fdfc4  0x2828a8cfa31db08e  0x01059e8d84d8a983  …
+
+modelo (mesma entrada):  seed  = 0x41  0x75f6ba43239c0987  0xf5aaed574222270a  0x119b83de39985411   == medido
+                         final = 0x55e8c88366b8954a  0xb04846b6876fdfc4  0x20412bcf0fdf79b4  0x64f52087dc4c7331
+alvo   (medido no fold):        0x9f4545e5e82a175a  0xb04846b6876fdfc4  0x2828a8cfa31db08e  0x01059e8d84d8a983
+```
+
+Leitura: **o seed bate** (4 de 4) e **`r1` bate** — no modelo, o último op que escreve `r1` é `w57`
+(`rol`), e daí em diante `r1` só é *lido*; como o valor final coincide, **a linhagem de `r1` está
+correta**. `r0`, `r2` e `r3` divergem. Ou seja: o defeito **não** está na semeadura (medida igual)
+nem no fold (desmonte conferido) — está no **laço de ops**, em algum op que escreve `r0`/`r2`/`r3`.
+O caminho para fechar é bisseccionar por op com o mesmo instrumento (hook no corpo do caso, que é um
+endereço distinto por op, e leitura do array de registradores) — não reescrever o modelo no escuro.
+
+**Não fechado (limitação declarada, sem maquiagem):** com o laço ainda divergente, a **inversão da
+senha não fecha** — e não vou apresentar a senha do modelo como se fosse a do alvo. Há ainda um
+segundo obstáculo, também medido: a senha que o modelo inverte é de **bytes binários** (32 B), e a
+função de preparação da entrada (RVA `0x1000`) devolve `len = 0` para bytes binários — então mesmo
+um modelo perfeito daria bytes que o alvo **não digere**, e o próximo passo tem de inverter a partir
+de uma entrada **de texto** (a mesma que o alvo aceita).
 
 ---
 
@@ -201,6 +235,30 @@ Limitações, sem maquiagem:
 - **Ghidra/x64dbg/Unicorn não exercitados nesta rodada** — e não por falta de necessidade: o
   caminho estático (Ghidra, round 8.5 §2) e o instrumento *caseiro* resolveram a leitura; o
   instrumento agora é do toolkit, então a próxima rodada começa daqui.
-- O **smoke do `-HookStub`** ficou pendente: uma rodada anterior deixou um alvo congelado vivo, o
-  que travou o último teste em lote. O alvo foi encerrado (`taskkill`), e o `-HookPos`/`-HookCall`
-  foram confirmados com comando + saída (§3).
+
+### Smoke da ferramenta promovida (os três primitivos, com saída)
+
+```console
+# 1) -HookStub: grava rsp e despeja 160 B do frame (aparecem neles o multiplicador do LCG e a
+#    contagem de palavras do bytecode: conferência independente do fold e do laço)
+$ powershell -File scripts/park-patch-run.ps1 -Target <alvo> -Entrada 'A' \
+      -FreezeIat 'exit=0x46644' -HookStub '0x8333=49BB{scratch}498923{orig}C3'
+  gravador de frame: RVA 0x8333 (bytes 488b442420 repetidos) -> rsp em scratch 0x1fae3ad0000
+  --- SCRATCH 0x1fae3ad0000: retorno do hook = 0x000000092fefd6a8 (little-endian)
+      +0x00..+0x80 (16 qwords): 0x000001fae379c940 0x00007ff7ef2b33b0 … 0x5851f42d4c957f2d 0x0000000000000047 …
+
+# 2) -HookSeed: rcx/r8/rdx/r9 = regs[0..3] (reproduz EXATAMENTE o seed do relatório)
+$ powershell -File scripts/park-patch-run.ps1 -Target <alvo> -Entrada 'A' \
+      -FreezeIat 'exit=0x46644' -HookSeed '0x8149'
+  gravador de seed: RVA 0x8149 (bytes 4889442420 repetidos) -> seed em scratch 0x1e2b5490000
+      SEED capturado: 0x0000000000000041  0x75f6ba43239c0987  0xf5aaed574222270a  0x119b83de39985411
+
+# 3) -HookPos: regressão do caminho que já era usado (mesma constante do relatório)
+$ powershell -File scripts/park-patch-run.ps1 -Target <alvo> -Entrada 'A' \
+      -FreezeIat 'exit=0x46644' -HookPos '0x4695'
+  --- area lida: pos-call (-HookPos)
+  --- SCRATCH 0x24071ba0000: retorno do hook = 0x4819071427dfacce (little-endian)
+```
+
+Os três rodaram com `exit=0`, o alvo foi encerrado pela ferramenta e **nenhum processo ficou vivo**
+(`tasklist` vazio). O `-HookCall` já havia sido verificado na §3 (retorno `(ptr,len)` de `0x1000`).

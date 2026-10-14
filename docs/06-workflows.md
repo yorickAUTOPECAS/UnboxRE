@@ -154,16 +154,28 @@ powershell -File scripts/park-patch-run.ps1 -Target work/acme/src/acme.exe -Entr
 # 3) stub próprio: grava rsp (para ler o frame da função) ou vários registradores
 powershell -File scripts/park-patch-run.ps1 -Target work/acme/src/acme.exe -Entrada 'ABC' `
     -HookStub '0x8333=49BB{scratch}498923{orig}C3' -FreezeIat 'exit=0x46644'
+# 4) o SEED do digest: rcx/r8/rdx/r9 = regs[0..3] no ponto em que o alvo os escreve
+powershell -File scripts/park-patch-run.ps1 -Target work/acme/src/acme.exe -Entrada 'ABC' `
+    -HookSeed '0x8149' -FreezeIat 'exit=0x46644'
 ```
 
-As cinco armadilhas medidas (estão no cabeçalho do script e no relatório da rodada 8.5):
+O smoke da ferramenta (rodada 8.5, com saída medida) cobre os três modos: `-HookStub` grava `rsp`
+e despeja 160 B do frame — no alvo da 8.5 aparecem neles a constante do LCG (`0x5851f42d4c957f2d`)
+e a contagem de palavras (`0x47`); `-HookSeed` devolve os quatro qwords do seed; `-HookPos` devolve
+`rax` do digest. Os **quatro** hooks têm área de scratch própria e a ferramenta **lê todas** as
+áreas que existirem na rodada (antes escolhia uma e escondia as outras).
+
+As sete armadilhas medidas (estão no cabeçalho do script e no relatório da rodada 8.5):
 `call stub` tem de reconstruir **`rsp` do call** (não só o alinhamento de 16 — se a função recebe 5º
 argumento na pilha, `rsp` errado = `0xC0000005`); store absoluto de 64 bits só via `movabs` (use
 `r11` quando o retorno usa `rax`/`rdx`); stub montado à mão erra encoding — **valide com
 `python scripts/disasm-range.py`** numa cópia do alvo; cada modo de hook precisa de área própria; e
 **rejeição pode ser transporte, não senha** (entrada binária que a função de preparação zera vira
 digest de entrada vazia — instrumente o call de preparação antes de concluir que a senha está
-errada).
+errada); e **o instrumento também tem de ser medido**: o `-HookStub`/`-HookSeed` só tinham área se
+`-HookCall` fosse usado junto (sozinhos escreviam no **endereço 0**, e o sintoma era "o hook não
+pegou"), e a leitura escolhia uma área só. Os dois defeitos apareceram no smoke da ferramenta — não
+na leitura do código — e foram corrigidos nela, não no caso.
 
 **Por quê antes de qualquer ferramenta pesada:** a resposta que decide o resto do
 plano é "este binário está empacotado/protegido ou é só lógica?". Se **não** houver

@@ -26,6 +26,8 @@
 #   -HookPos  'rva'           grava rax logo DEPOIS de um call, sem tocar no call
 #   -HookStub 'rva=TEMPLATE'  stub proprio (hex) com {scratch}/{orig}; o unico primitivo que cobre
 #                             os casos especiais (capturar seed, frame, rsp, registradores)
+#   -HookSeed 'rva'           grava rcx/r8/rdx/r9 = regs[0..3] no ponto em que o alvo os escreve
+#                             (o SEED do digest) e repete os 5 bytes originais
 #   -SeguirRetorno            com -HookCall: trata (rax,rdx) do retorno como (ptr,len) e despeja
 #
 # ARMADILHAS MEDIDAS (todas custaram uma rodada; estao no relatorio da 8.5):
@@ -59,6 +61,7 @@ param(
     [string[]]$HookCall = @(),              # 'rva-do-call=rva-da-funcao' -> grava rax E rdx do retorno
     [string[]]$HookPos = @(),               # 'rva' (logo DEPOIS de um call) -> grava rax
     [string[]]$HookStub = @(),              # 'rva=HEX' (template com {scratch}/{orig}) -> stub proprio
+    [string[]]$HookSeed = @(),              # 'rva' -> grava rcx/r8/rdx/r9 = regs[0..3] (o SEED)
     [switch]$SeguirRetorno,                 # -HookCall: trata (rax,rdx) como (ptr,len) e despeja
     [int]$EsperaPromptMs = 1500,
     [int]$EsperaSaidaMs = 3000,
@@ -251,7 +254,10 @@ if ($HookStub.Count -gt 0) {
         if ([Math]::Abs($dist) -gt 0x7FFFFFFF) { throw "stub longe demais" }
         $rvaTxt, $tplTxt = $par1.Split('=')
         $tpl = $tplTxt
-        $sHex = ([BitConverter]::ToString([BitConverter]::GetBytes([int64]$scratch)) -replace '-','')
+        # ARMADILHA MEDIDA (fechada no smoke da 8.5): aqui a area e a $stubScratch. Com $scratch
+        # (o que estava antes) o stub so tinha area se -HookCall tambem fosse usado; sozinho, ele
+        # escrevia no ENDERECO 0 -> 0xC0000005 no alvo e leitura de zeros (parecia "hook nao pegou").
+        $sHex = ([BitConverter]::ToString([BitConverter]::GetBytes([int64]$stubScratch)) -replace '-','')
         $oHex = (($orig | ForEach-Object { '{0:x2}' -f $_ }) -join '')
         $sc = [byte[]]([regex]::Matches($tpl.Replace('{scratch}',$sHex).Replace('{orig}',$oHex), '..') | ForEach-Object { [Convert]::ToByte($_.Value, 16) })
         if (-not [PR.Mem]::WriteProcessMemory($h, $stub, $sc, $sc.Length, [ref]$wr)) { throw "write stub falhou" }
@@ -262,17 +268,20 @@ if ($HookStub.Count -gt 0) {
         if (-not [PR.Mem]::WriteProcessMemory($h, $pos, $patchCall, 5, [ref]$wr)) { throw "patch falhou" }
         [void][PR.Mem]::VirtualProtectEx($h, $pos, [IntPtr]5, $old, [ref]$old)
         Write-Host ("  gravador de frame: RVA {0} (bytes {1} repetidos) -> rsp em scratch 0x{2:x}" -f `
-            $rvaTxt, (($orig | ForEach-Object { '{0:x2}' -f $_ }) -join ''), [int64]$scratch)
+            $rvaTxt, (($orig | ForEach-Object { '{0:x2}' -f $_ }) -join ''), [int64]$stubScratch)
     }
 }
 
 if ($HookSeed.Count -gt 0) {
-    # Captura o SEED: no ponto escolhido, rax/r8/rdx/rcx sao os regs[0..3] prestes a serem
-    # gravados. O stub grava os quatro e REPETE os 5 bytes originais (a gravacao original).
-    if ($scratch -eq [IntPtr]::Zero) {
-        $scratch = [PR.Mem]::VirtualAllocEx($h, [IntPtr]::Zero, [IntPtr]0x1000, 0x3000, 0x40)
-        if ($scratch -eq [IntPtr]::Zero) { throw "VirtualAllocEx(scratch) falhou" }
-    }
+    # Captura o SEED: no ponto escolhido, rcx/r8/rdx/r9 sao os regs[0..3] prestes a serem gravados
+    # (ex.: o `mov [r..]` que copia os quatro para a area do digest). O stub grava os quatro e
+    # REPETE os 5 bytes originais (a gravacao original).
+    # ARMADILHA MEDIDA (fechada no smoke da 8.5): este modo tinha area propria em $scratch mas
+    # imprimia $stubScratch (nulo sem -HookStub) E nao estava declarado no param() -- ou seja, era
+    # codigo morto e o modo que produziu o "SEED capturado" do relatorio da 8.5 nao existia na
+    # ferramenta promovida. Agora tem area $seedScratch e entra na lista de areas lidas.
+    $seedScratch = [PR.Mem]::VirtualAllocEx($h, [IntPtr]::Zero, [IntPtr]0x1000, 0x3000, 0x40)
+    if ($seedScratch -eq [IntPtr]::Zero) { throw "VirtualAllocEx(seedScratch) falhou" }
     foreach ($rvaTxt in $HookSeed) {
         $pos = [IntPtr]($base + [Convert]::ToInt64(($rvaTxt -replace '^0x',''), 16))
         $orig = [byte[]]::new(5); $rd = [IntPtr]::Zero
@@ -286,7 +295,7 @@ if ($HookSeed.Count -gt 0) {
         $dist = [int64]$stub - ([int64]$pos + 5)
         if ([Math]::Abs($dist) -gt 0x7FFFFFFF) { throw "stub longe demais" }
         $tpl = '49BB{scratch}4989034D8943084989531049894B18{orig}C3'
-        $sHex = ([BitConverter]::ToString([BitConverter]::GetBytes([int64]$scratch)) -replace '-','')
+        $sHex = ([BitConverter]::ToString([BitConverter]::GetBytes([int64]$seedScratch)) -replace '-','')
         $oHex = (($orig | ForEach-Object { '{0:x2}' -f $_ }) -join '')
         $sc = [byte[]]([regex]::Matches($tpl.Replace('{scratch}',$sHex).Replace('{orig}',$oHex), '..') | ForEach-Object { [Convert]::ToByte($_.Value, 16) })
         if (-not [PR.Mem]::WriteProcessMemory($h, $stub, $sc, $sc.Length, [ref]$wr)) { throw "write stub falhou" }
@@ -297,7 +306,7 @@ if ($HookSeed.Count -gt 0) {
         if (-not [PR.Mem]::WriteProcessMemory($h, $pos, $patchCall, 5, [ref]$wr)) { throw "patch falhou" }
         [void][PR.Mem]::VirtualProtectEx($h, $pos, [IntPtr]5, $old, [ref]$old)
         Write-Host ("  gravador de seed: RVA {0} (bytes {1} repetidos) -> seed em scratch 0x{2:x}" -f `
-            $rvaTxt, (($orig | ForEach-Object { '{0:x2}' -f $_ }) -join ''), [int64]$stubScratch)
+            $rvaTxt, (($orig | ForEach-Object { '{0:x2}' -f $_ }) -join ''), [int64]$seedScratch)
     }
 }
 
@@ -370,22 +379,31 @@ if ($OutDir -ne '') {
     }
     Write-Host ("regioes lidas={0} bytes={1:N0}" -f $reg, $tot)
 }
-# Cada modo de hook tem a SUA area de scratch (armadilha 4): escolhe de onde ler.
-# (-HookCall tem a propria e a le no bloco abaixo; -HookPos e -HookStub caem aqui.)
+# Cada modo de hook tem a SUA area de scratch (armadilha 4): ler TODAS as que existirem.
+# ARMADILHA MEDIDA (fechada no smoke da 8.5): escolher so UMA area (stub > pos > call) escondia as
+# outras — com -HookPos e -HookStub juntos, o valor do -HookPos simplesmente nao aparecia na saida.
 # ARMADILHA MEDIDA: variavel de tipo IntPtr vinda de um modo que NAO rodou chega como $null, e
 # [IntPtr]$null dentro do ReadProcessMemory estoura ("nao e possivel converter nulo"); por isso a
-# escolha da area e explicita e o cast e feito na hora de usar.
-$area = $null
-if ($stubScratch) { $area = $stubScratch }
-elseif ($posScratch) { $area = $posScratch }
-elseif ($scratch) { $area = $scratch }
-if ($area) {
+# lista e montada so com as areas alocadas e o cast e feito na hora de usar.
+$areas = @()
+if ($seedScratch) { $areas += [pscustomobject]@{ Nome = 'seed (-HookSeed)'; End = $seedScratch; Modo = 'seed' } }
+if ($stubScratch) { $areas += [pscustomobject]@{ Nome = 'stub proprio (-HookStub)'; End = $stubScratch; Modo = 'stub' } }
+if ($posScratch) { $areas += [pscustomobject]@{ Nome = 'pos-call (-HookPos)'; End = $posScratch; Modo = 'pos' } }
+if ($scratch) { $areas += [pscustomobject]@{ Nome = 'call-site (-HookCall)'; End = $scratch; Modo = 'call' } }
+foreach ($area in $areas) {
     $bufS = [byte[]]::new(64)
     $rdS = [IntPtr]::Zero
-    if ([PR.Mem]::ReadProcessMemory($h, [IntPtr]$area, $bufS, 64, [ref]$rdS)) {
-        Write-Host ("--- SCRATCH 0x{0:x}: retorno do hook = 0x{1} (little-endian)" -f [int64]$area,
+    if ([PR.Mem]::ReadProcessMemory($h, [IntPtr]$area.End, $bufS, 64, [ref]$rdS)) {
+        Write-Host ("--- area lida: {0}" -f $area.Nome)
+        Write-Host ("--- SCRATCH 0x{0:x}: retorno do hook = 0x{1} (little-endian)" -f [int64]$area.End,
             (($bufS[7..0] | ForEach-Object { '{0:x2}' -f $_ }) -join ''))
-        if ($HookCall.Count -gt 0) {
+        if ($area.Modo -eq 'seed') {
+            # Ordem gravada pelo stub: rcx, r8, rdx, r9 = regs[0..3] do seed.
+            Write-Host ("    SEED capturado: 0x{0:x16}  0x{1:x16}  0x{2:x16}  0x{3:x16}" -f `
+                [BitConverter]::ToUInt64($bufS, 0), [BitConverter]::ToUInt64($bufS, 8),
+                [BitConverter]::ToUInt64($bufS, 16), [BitConverter]::ToUInt64($bufS, 24))
+        }
+        if ($area.Modo -eq 'call') {
             $bufH = [byte[]]::new(16); $rdH = [IntPtr]::Zero
             [void][PR.Mem]::ReadProcessMemory($h, $hookScratch, $bufH, 16, [ref]$rdH)
             $rax = [BitConverter]::ToUInt64($bufH, 0); $rdx = [BitConverter]::ToUInt64($bufH, 8)
@@ -399,7 +417,7 @@ if ($area) {
                 } else { Write-Host "    (ptr,len) ilegivel" }
             }
         }
-        if ($HookStub.Count -gt 0) {
+        if ($area.Modo -eq 'stub') {
             # O stub do usuario decide o que gravar; o caso tipico e um PONTEIRO (ex.: rsp ou o
             # endereco de uma estrutura). Aqui o valor em scratch[0] e seguido e 160 bytes dele
             # sao despejados -- util para ler um frame (regs, locais) de dentro da funcao.
@@ -413,7 +431,7 @@ if ($area) {
             } else { Write-Host "    (nao segui o ponteiro: valor fora de faixa ou memoria ilegivel)" }
         }
         Write-Host ("    hex bruto: {0}" -f ((0..7 | ForEach-Object { '{0:x2}' -f $bufS[$_] }) -join ' '))
-    } else { Write-Host "scratch ilegivel (processo saiu antes da leitura?)" }
+    } else { Write-Host ("scratch de {0} ilegivel em 0x{1:x} (processo saiu antes da leitura?)" -f $area.Nome, [int64]$area.End) }
 }
 [PR.Mem]::CloseHandle($h) | Out-Null
 if (-not $p.HasExited) { $p.Kill() }
