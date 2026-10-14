@@ -150,7 +150,7 @@ Automação:
 | [scripts/start-x64dbg.ps1](scripts/start-x64dbg.ps1) | Sobe o x64dbg minimizado para o plugin MCP ficar vivo, espera a porta e (com `-Check`) roda a chamada MCP real |
 | [scripts/mcp-x64dbg-smoke.mjs](scripts/mcp-x64dbg-smoke.mjs) | Prova que o MCP do x64dbg responde **ao vivo** (initialize → tools/list → uma tool real) |
 | [scripts/check-consistency.mjs](scripts/check-consistency.mjs) | Teste de regressão offline: doc ↔ código ↔ licenças divergindo, comando/cliente/perfil inexistente |
-| [scripts/verify-licenses.mjs](scripts/verify-licenses.mjs) | Confere cada licença declarada contra a fonte primária (rede; job de CI) |
+| [scripts/verify-licenses.mjs](scripts/verify-licenses.mjs) | Confere cada licença declarada contra a fonte primária (rede; job de CI), com retry limitado em host instável — sem afrouxar a verificação |
 | [scripts/new-case.ps1](scripts/new-case.ps1) | Cria o esqueleto de um caso em `work/<alvo>/` com procedência e hash |
 | [scripts/setup-ghidra-extensions.ps1](scripts/setup-ghidra-extensions.ps1) | Instala a extensão Jython e prepara PyGhidra (Python 3) |
 | [scripts/re-build.ps1](scripts/re-build.ps1) | Compila os componentes locais da fonte (REA, x64dbg-MCP) — opcional; o fetch usa releases |

@@ -108,6 +108,15 @@ exige atribuição).
 > (GPL-3.0 → **GPL-2.0**), PE-bear (MIT → **GPL-2.0**), D-810 (MIT → **AGPL-3.0**) e
 > objection (MIT → **GPL-3.0**). O CI (`verify-licenses.mjs`) agora reverifica tudo
 > isso a cada push — inclusive as 28 ferramentas deste lote Windows.
+>
+> **Host instável não é licença errada (medido em 2026-10-14).** O job ficou vermelho três
+> vezes seguidas porque **um** `LICENSE` de terceiro (o do API Monitor, em `rohitab.com`)
+> respondeu 503/erro de conexão de forma intermitente — passando no re-run do mesmo commit.
+> O script passou a repetir a requisição até 4 vezes com espera de 1 s → 2 s → 4 s e timeout
+> de 20 s, **sem afrouxar nada**: só erro de rede/status transitório é repetido, um `LICENSE`
+> que responde e não confere reprova na primeira resposta, e esgotadas as tentativas o
+> veredito é o de antes (falha fatal sob `--strict`, que é como o CI o roda). As tentativas
+> aparecem na própria saída — instabilidade absorvida, nunca escondida.
 
 > **Regra do toolkit:** o repositório publica **apenas o seu código (MIT) e a sua
 > documentação**. Ferramentas GPL são *instaladas localmente* pelo bootstrap, nunca

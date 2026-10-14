@@ -19,6 +19,22 @@
  * It is NETWORKED, so it runs as its own CI job. A network error is a warning
  * unless --strict; a genuine mismatch is ALWAYS fatal.
  *
+ * Host instável (retry limitado, medido em 2026-10-14)
+ * ------------------------------------------------
+ * O job ficou vermelho três vezes seguidas por causa de UM host de terceiro
+ * (`http://www.rohitab.com/apimonitor`, a fonte primária do API Monitor) que responde
+ * 503/erro de conexão de forma intermitente — e passa no re-run do mesmo SHA. Um gate
+ * que depende de um site instável precisa tolerar a instabilidade: cada requisição é
+ * tentada até 4 vezes, com espera de 1 s → 2 s → 4 s, e timeout de 20 s por tentativa
+ * (sem timeout, um host pendurado trava o CI).
+ *
+ * O que o retry NÃO faz (isto é o ponto): ele não afrouxa verificação nenhuma.
+ *   · só repete erro de REDE e status transitório (408, 425, 429, 5xx, 522, 524, 599);
+ *   · 404/403/401 são RESPOSTA do servidor — repetir não mudaria nada, então não repete;
+ *   · um LICENSE que responde e não contém os `needles` reprova na PRIMEIRA resposta
+ *     (mismatch de licença nunca é confundido com falha de rede);
+ *   · esgotadas as tentativas, o comportamento é o de antes: falha fatal sob --strict.
+ *
  * Usage: node scripts/verify-licenses.mjs [--json] [--strict]
  * Exit:  0 verified (or network-degraded) · 1 a mismatch was found · 2 crash.
  */
@@ -32,18 +48,56 @@ const ROOT = resolve(HERE, "..");
 const JSON_OUT = process.argv.includes("--json");
 const STRICT = process.argv.includes("--strict");
 
+// Retry limitado para host instável: 1 tentativa + 3 retries (1 s, 2 s, 4 s).
+const RETRY_ATTEMPTS = 4;
+const RETRY_DELAYS_MS = [1000, 2000, 4000];
+const REQUEST_TIMEOUT_MS = 20000;
+// Status que podem passar sozinhos: 408 timeout, 425 too early, 429 rate limit, 5xx e os
+// 5xx de borda do Cloudflare. 404/401/403 NÃO entram: são resposta, não instabilidade.
+const RETRY_STATUS = new Set([408, 425, 429, 500, 502, 503, 504, 522, 524, 599]);
+const retries = [];
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
 /** Normalize SPDX so 'GPL-3.0', 'GPL-3.0-only' and 'GPL-3.0-or-later' compare equal. */
 const spdxBase = (s) => (s || "").replace(/-(only|or-later)$/i, "").trim().toLowerCase();
 
 // GITHUB_TOKEN raises the API rate limit from 60/h to 1000/h — CI passes it in.
 const GH_TOKEN = process.env.GITHUB_TOKEN || process.env.GH_TOKEN || null;
 
-async function get(url) {
+async function getOnce(url) {
   const headers = { "User-Agent": "UnboxRE-verify-licenses", Accept: "application/vnd.github+json" };
   if (GH_TOKEN && url.includes("api.github.com")) headers.Authorization = `Bearer ${GH_TOKEN}`;
-  const res = await fetch(url, { headers, redirect: "follow" });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res;
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    return await fetch(url, { headers, redirect: "follow", signal: ac.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * GET com retry limitado. `notes` (opcional) recebe o registro das tentativas, para a
+ * evidência mostrar que houve instabilidade e que ela foi absorvida — nunca escondida.
+ */
+async function get(url, notes) {
+  for (let attempt = 1; ; attempt++) {
+    let res = null;
+    let err = null;
+    try {
+      res = await getOnce(url);
+    } catch (e) {
+      err = e?.name === "AbortError" ? new Error(`sem resposta em ${REQUEST_TIMEOUT_MS / 1000}s`) : e;
+    }
+    if (res?.ok) return res;
+    const status = res ? res.status : null;
+    const transient = status === null || RETRY_STATUS.has(status);
+    if (!transient || attempt >= RETRY_ATTEMPTS) throw new Error(status ? `HTTP ${status}` : err.message);
+    const wait = RETRY_DELAYS_MS[Math.min(attempt - 1, RETRY_DELAYS_MS.length - 1)];
+    retries.push({ url, attempt, status, message: status ? `HTTP ${status}` : err.message, waitMs: wait });
+    notes?.push(`tentativa ${attempt}/${RETRY_ATTEMPTS} falhou (${status ? `HTTP ${status}` : err.message}) — repetindo em ${wait / 1000}s`);
+    await sleep(wait);
+  }
 }
 
 // ── Build the list of declarations to verify ─────────────────────────────────
@@ -84,7 +138,7 @@ for (const c of checks) {
 
   if (c.rawUrl && c.needles.length) {
     try {
-      const text = await (await get(c.rawUrl)).text();
+      const text = await (await get(c.rawUrl, row.notes)).text();
       const missing = c.needles.filter((n) => !text.toLowerCase().includes(n.toLowerCase()));
       row.rawOk = missing.length === 0;
       if (missing.length) {
@@ -100,7 +154,7 @@ for (const c of checks) {
 
   if (c.repo) {
     try {
-      const data = await (await get(`https://api.github.com/repos/${c.repo}/license`)).json();
+      const data = await (await get(`https://api.github.com/repos/${c.repo}/license`, row.notes)).json();
       const detected = data.license?.spdx_id ?? "NOASSERTION";
       row.apiSpdx = detected;
       if (detected !== "NOASSERTION" && spdxBase(detected) !== spdxBase(c.declared)) {
@@ -127,7 +181,7 @@ for (const c of checks) {
 
 // ── Report ───────────────────────────────────────────────────────────────────
 if (JSON_OUT) {
-  console.log(JSON.stringify({ ok: failures.length === 0, count: checks.length, results, failures }, null, 2));
+  console.log(JSON.stringify({ ok: failures.length === 0, count: checks.length, retries: retries.length, retriesDetail: retries, results, failures }, null, 2));
 } else {
   console.log("");
   console.log("UnboxRE — verificação de licenças contra o upstream (fonte primária)");
@@ -139,6 +193,12 @@ if (JSON_OUT) {
     for (const n of r.notes) console.log(`       · ${n}`);
   }
   console.log("");
+  if (retries.length) {
+    const hosts = [...new Set(retries.map((r) => new URL(r.url).host))].join(", ");
+    console.log(`  [i ] ${retries.length} requisição(ões) precisou(aram) de retry (host instável: ${hosts})`);
+    console.log("       as tentativas estão nas notas acima; a verificação em si não mudou — é o MESMO LICENSE, lido de novo.");
+    console.log("");
+  }
   if (failures.length === 0) {
     console.log(`  [OK] ${checks.length} licenças declaradas batem com a fonte primária.`);
   } else {

@@ -35,7 +35,7 @@ não quebra nada, e nada é instalado/compilado/copiado sem uma flag explícita
 | `load-snaps.ps1` | Windows (elevado) | liga/desliga *loader snaps* (`FLG_SHOW_LDR_SNAPS`) para uma imagem — o efeito de `gflags /i app.exe +sls`, sem o gflags.exe | com `-Apply`, em shell elevado |
 | `capture-debugprint.ps1` | Windows | listener do canal `DBWIN_BUFFER` (OutputDebugString/DbgPrint) para alvos **fora** do debugger — validado por auto-teste; medido que ele **não** recebe *loader snaps* neste host (para snaps, leia a janela Log do x64dbg/WinDbg — ver [docs/tools/gflags.md](../docs/tools/gflags.md)) | com `-OutFile` |
 | `check-consistency.mjs` | Node | regressão offline: doc ↔ código ↔ licenças divergindo | não |
-| `verify-licenses.mjs` | Node (rede) | confere cada licença contra a fonte primária | não |
+| `verify-licenses.mjs` | Node (rede) | confere cada licença contra a fonte primária; **retry limitado** (até 4 tentativas, 1 s → 2 s → 4 s, timeout de 20 s) só em erro de rede/status transitório — um `LICENSE` que responde e não confere reprova na 1ª resposta, e as tentativas saem na própria saída | não |
 | `smoke-mcp.mjs` | Node | handshake MCP real (initialize + tools/list) contra o REA | não |
 | `start-x64dbg.ps1` | Windows | sobe o x64dbg minimizado para o plugin MCP ficar vivo; espera a porta e, com `-Check`, roda a chamada MCP real | não (com `-Stop` encerra o que subiu) |
 | `mcp-x64dbg-smoke.mjs` | Node | prova que o MCP do x64dbg responde ao vivo (initialize → tools/list → uma tool real) | não |

@@ -990,9 +990,55 @@ na **primeira** execução, sem re-run —
 `success Licenças contra a fonte primária · success Documentação e estrutura · success Scan de
 segredos e binários · success Ponte MCP do REA sobe e responde`.
 
-> **Limitação declarada (não resolvida nesta rodada):** o job de licenças depende de um host
-> instável e por isso pode ficar vermelho sem nenhum defeito no repositório. Não mascarei isso
-> mexendo no gate: as afirmações de licença continuam vindo da fonte primária e o script continua
-> falhando quando não consegue lê-la. A decisão de tornar o gate resiliente a 5xx transitório
-> (retry com backoff, sem afrouxar a verificação) é do dono do projeto — está registrada aqui
-> como pendência com a medição que a justifica.
+**Correção aplicada (decisão do dono do projeto):** o `verify-licenses.mjs` passou a repetir a
+requisição até **4 vezes** com espera de **1 s → 2 s → 4 s** e **timeout de 20 s** por tentativa
+(sem timeout, um host pendurado trava o CI indefinidamente). Só é repetido o que pode passar
+sozinho — erro de rede, `408`, `425`, `429` e `5xx` (`522`, `524`, `599` incluídos). O que **não**
+mudou, de propósito:
+
+* `404`/`401`/`403` são **resposta** do servidor, não instabilidade — não são repetidos;
+* um `LICENSE` que responde e não contém os `needles` reprova na **primeira** resposta (mismatch
+  de licença nunca é confundido com falha de rede);
+* esgotadas as tentativas, o veredito é exatamente o de antes: falha fatal sob `--strict` (que é
+  como o CI roda o script);
+* as tentativas aparecem na saída do próprio script — instabilidade absorvida, nunca escondida.
+
+**O retry foi testado nas duas direções** (harness `work/.ci/retry-test.mjs`, que roda o script
+**real**, sem gancho de teste, numa árvore temporária apontando para um servidor local que finge
+cada comportamento):
+
+```console
+$ node work/.ci/retry-test.mjs
+  flaky      exit=0  requisicoes=3  retry_registrado=sim
+             [OK] 1 licenças declaradas batem com a fonte primária.
+  always503  exit=1  requisicoes=4  retry_registrado=sim
+             [FAIL] Alvo Teste: falha de rede lendo http://127.0.0.1:57285/LICENSE
+  notfound   exit=1  requisicoes=1  retry_registrado=nao
+             [FAIL] Alvo Teste: falha de rede lendo http://127.0.0.1:57285/LICENSE
+  mismatch   exit=1  requisicoes=1  retry_registrado=nao
+             [FAIL] Alvo Teste: http://127.0.0.1:57285/LICENSE não confirma "MIT"
+
+  [OK  ] expectativa do caso flaky      (503, 503, 200 -> recupera, 3 requisições)
+  [OK  ] expectativa do caso always503  (4 tentativas e falha: limitado, não infinito)
+  [OK  ] expectativa do caso notfound   (404 é resposta: 1 requisição)
+  [OK  ] expectativa do caso mismatch   (mismatch reprova na 1ª resposta)
+```
+
+E na vida real, no mesmo host que derrubava o job — a evidência é a própria saída do script:
+
+```console
+$ node scripts/verify-licenses.mjs
+     API Monitor     declara LicenseRef-Freeware-Rohitab raw:n/a        api:n/a
+       · tentativa 1/4 falhou (sem resposta em 20s) — repetindo em 1s
+       · tentativa 2/4 falhou (fetch failed) — repetindo em 2s
+       · tentativa 3/4 falhou (sem resposta em 20s) — repetindo em 4s
+
+  [i ] 3 requisição(ões) precisou(aram) de retry (host instável: www.rohitab.com)
+  [OK] 79 licenças declaradas batem com a fonte primária.        exit=0
+```
+
+> **Limitação que continua de pé:** o gate ainda depende da rede e de hosts de terceiros. Se o
+> host estiver fora do ar por mais de ~7 s de tentativas, o job fica vermelho mesmo com o
+> repositório correto — agora isso é a exceção (host realmente indisponível), não mais o
+> ruído de um 503 passageiro. E o modo de falhar continua explícito: o script nunca passa
+> silenciosamente quando não consegue ler a fonte primária.
