@@ -903,3 +903,47 @@ bash scripts/prova-c.sh ; bash scripts/prova-d-hwbreak-armed.sh
 * Os 6 alvos reais da pasta `Alvos` **não** foram tocados nesta rodada, por escopo: a primeira
   tarefa do round seguinte é listar o conteúdo da pasta (nome, dificuldade declarada) antes de
   escolher qual atacar.
+### 9.9 Nota: o CI dos dois commits ficou vermelho por indisponibilidade de um site de terceiro
+
+Os dois commits desta rodada foram empurrados com ~1 minuto de diferença (`dcfdebe`, `d270b5c`) e
+**os dois** ficaram com o job `licenses` vermelho. Investigado, não é defeito do código nem do
+conteúdo do commit — é indisponibilidade de **um** host de terceiro. Log do job (run
+[38597582145](https://github.com/yorickAUTOPECAS/UnboxRE/actions/runs/38597582145)):
+
+```console
+     API Monitor     declara LicenseRef-Freeware-Rohitab raw:n/a        api:n/a
+       · não consegui ler o LICENSE: HTTP 503
+  [FAIL] API Monitor: falha de rede lendo http://www.rohitab.com/apimonitor
+##[error]Process completed with exit code 1.
+
+# no outro run (38597678303), o mesmo host e o mesmo veredito:
+       · não consegui ler o LICENSE: fetch failed
+  [FAIL] API Monitor: falha de rede lendo http://www.rohitab.com/apimonitor
+```
+
+Fatos medidos, um por um:
+
+| medição | comando | resultado |
+|---|---|---|
+| o host voltou? | `curl -s -o /dev/null -w "%{http_code}" -L http://www.rohitab.com/apimonitor` ×3 | `200`, `200`, `200` |
+| o script mudou nesta rodada? | `git diff f4a68c0..d270b5c -- scripts/verify-licenses.mjs` | sem alteração |
+| o mesmo código, localmente | `node scripts/verify-licenses.mjs` | `[OK] 79 licenças…`, exit `0` |
+| re-execução dos jobs | `gh run rerun 38597678303 --failed` · `gh run rerun 38597582145 --failed` | os dois runs passaram (ver abaixo) |
+
+Os **4** jobs do commit mais recente em `main` (`d270b5c`), todos verdes —
+[run 38597678303](https://github.com/yorickAUTOPECAS/UnboxRE/actions/runs/38597678303):
+
+```console
+$ gh run view 38597678303 --json jobs
+  success  Licenças contra a fonte primária
+  success  Documentação e estrutura
+  success  Scan de segredos e binários
+  success  Ponte MCP do REA sobe e responde
+```
+
+**Leitura:** o `verify-licenses.mjs` **falha de propósito** quando não consegue ler a fonte
+primária (é a regra nº 5 do projeto: toda afirmação de licença vem da fonte primária) — o efeito
+colateral é que a indisponibilidade de um site de terceiro pinta o CI de vermelho mesmo com o
+código intacto. A hipótese de *rate limit* de API entre os dois pushes não se sustenta: a falha
+foi sempre na **mesma** linha, do único job que faz requisição HTTP a hosts de terceiros, e o
+re-run imediato do mesmo SHA passou. Nota registrada, **não** é defeito da rodada.
