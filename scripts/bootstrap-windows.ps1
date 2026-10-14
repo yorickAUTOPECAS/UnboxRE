@@ -139,6 +139,12 @@ $Catalog = @(
        Why = 'traço de file/registry/processo — sem ele, RE dinâmico fica cego'; License = 'proprietária-freeware' }
     @{ Name = 'API Monitor'; Probe = 'apimonitor'; Profiles = @('dynamic'); Url = 'http://www.rohitab.com/apimonitor'
        Why = 'traço de chamadas Win32/COM em nível de argumento'; License = 'freeware [COMERCIAL p/ x64 no passado]' }
+    # gflags NÃO tem pacote no winget (medido: `winget search "debugging tools"` → nada) e
+    # o pacote do WinDbg não o traz. Sem ele, o mesmo trabalho é feito por
+    # scripts/load-snaps.ps1 (escreve o MESMO bit de registro) + capture-debugprint.ps1.
+    @{ Name = 'gflags (Debugging Tools for Windows)'; Probe = 'gflags'; Profiles = @('dynamic')
+       Url = 'https://learn.microsoft.com/en-us/windows-hardware/drivers/debugger/debugger-download-tools'
+       Why = 'loader snaps: ver a decisão do loader quando a imagem é recusada — alternativa: scripts/load-snaps.ps1'; License = 'proprietária (EULA Microsoft)' }
 
     # ── mobile ─────────────────────────────────────────────────────────────
     @{ Name = 'jadx'; Probe = 'jadx'; Profiles = @('mobile'); Winget = 'Skylot.jadx'; Url = 'https://github.com/skylot/jadx/releases'
@@ -182,15 +188,36 @@ function Resolve-Manager {
 
 $Manager = Resolve-Manager
 
+# Contrato dos instaladores: devolvem 'ok' (instalado AGORA), 'present' (já estava
+# instalado — o probe não pegou, mas o gerenciador confirma) ou 'fail' (pendente/
+# manual). Booleanos não bastam: o winget sinaliza "já instalado" com um CÓDIGO DE
+# ERRO no exit code (medido nesta máquina: `winget install zig.zig` num Zig já
+# instalado → -1978335189 / 0x8A15002B "no applicable upgrade"), então “sucesso” e
+# “falhou” não são as duas únicas leituras — e tratar “já instalado” como falha
+# fazia o bootstrap listar Zig/CMake/Ninja como pendentes numa máquina que os tem.
 function Install-Winget {
     param([string]$Id, [string]$Name)
     # NÃO use $args: é variável automática do PowerShell e a atribuição é ignorada.
     $cliArgs = @('install', '--id', $Id, '--exact', '--source', 'winget', '--disable-interactivity')
     if ($Yes) { $cliArgs += @('--accept-package-agreements', '--accept-source-agreements', '--silent') }
     Write-Status 'INFO' "winget install $Id"
-    if (-not $Apply) { return $true }
-    & winget @cliArgs 2>&1 | ForEach-Object { Write-Host "      $_" -ForegroundColor DarkGray }
-    return ($LASTEXITCODE -eq 0)
+    if (-not $Apply) { return 'ok' }
+    $out = & winget @cliArgs 2>&1
+    $out | ForEach-Object { Write-Host "      $_" -ForegroundColor DarkGray }
+    if ($LASTEXITCODE -eq 0) { return 'ok' }
+    # Códigos em que o winget "não teve trabalho", mas o pacote está instalado:
+    #   -1978335189 = 0x8A15002B UPDATE_NOT_APPLICABLE
+    #   -1978335135 = 0x8A150061 PACKAGE_ALREADY_INSTALLED
+    if (@(-1978335189, -1978335135) -contains $LASTEXITCODE) {
+        Write-Status 'OK' "${Name}: já instalado (winget)"
+        return 'present'
+    }
+    # Rede de segurança textual: o exit code do winget muda entre versões.
+    if (($out | Out-String) -match 'already installed') {
+        Write-Status 'OK' "${Name}: já instalado (winget)"
+        return 'present'
+    }
+    return 'fail'
 }
 
 function Install-Choco {
@@ -198,17 +225,23 @@ function Install-Choco {
     $cliArgs = @('install', $Id, '-y')
     if (-not $Yes) { $cliArgs = @('install', $Id) }
     Write-Status 'INFO' "choco install $Id"
-    if (-not $Apply) { return $true }
+    if (-not $Apply) { return 'ok' }
     & choco @cliArgs 2>&1 | ForEach-Object { Write-Host "      $_" -ForegroundColor DarkGray }
-    return ($LASTEXITCODE -eq 0)
+    if ($LASTEXITCODE -eq 0) { return 'ok' }
+    if ($LASTEXITCODE -eq 1641 -or $LASTEXITCODE -eq 3010) { return 'ok' }   # instalado, reboot pendente
+    return 'fail'
 }
 
 function Install-Pip {
     param([string]$Pkg)
     Write-Status 'INFO' "pip install --user $Pkg"
-    if (-not $Apply) { return $true }
+    if (-not $Apply) { return 'ok' }
     & python -m pip install --user --upgrade $Pkg 2>&1 | ForEach-Object { Write-Host "      $_" -ForegroundColor DarkGray }
-    return ($LASTEXITCODE -eq 0)
+    if ($LASTEXITCODE -eq 0) {
+        return 'ok'
+    }
+    if ((& python -m pip show $Pkg 2>$null | Select-Object -First 1)) { return 'present' }
+    return 'fail'
 }
 
 function Install-Manual {
@@ -220,7 +253,7 @@ function Install-Manual {
     if ($Name -like 'binwalk*' -or $Name -like 'sasquatch*' -or $Name -like 'firmware-mod-kit*') {
         Write-Host "      atalho: scripts/bootstrap-wsl.sh --profile firmware" -ForegroundColor DarkGray
     }
-    return $false
+    return 'fail'
 }
 
 # ───────────────────────────────────────────────────────────────────────────
@@ -236,6 +269,13 @@ if (($perfis -contains 'all') -or ($perfis -contains 'full')) {
 }
 if ($perfis -contains 'formats') { $perfis = @($perfis | Where-Object { $_ -ne 'formats' }) + @('mobile', 'firmware') }
 if ($perfis -contains 'network') { $perfis = @($perfis | Where-Object { $_ -ne 'network' }) + @('net') }
+
+# `core` IMPLICA `fetch`. A doc promete isso (README §3, docs/04): "o perfil core
+# roda o fetch antes", porque sem o núcleo de terceiros a toolchain não tem contra
+# o que trabalhar. O código não fazia a implicação — um clone limpo recebia
+# "toolchain ok" e continuava SEM ghidra/x64dbg/rea-main. Achado pelo teste de
+# bootstrap a partir de máquina zerada (relatório da rodada).
+if ($perfis -contains 'core') { $perfis = @('fetch') + $perfis }
 $perfis = @($perfis | Select-Object -Unique)
 
 # 'wsl' não é um perfil de winget: delega ao bootstrap-wsl.sh (Linux toolchain).
@@ -316,38 +356,42 @@ foreach ($tool in $selected) {
     $npmPk = Get-Field $tool 'Npm'
     $cargoPk = Get-Field $tool 'Cargo'
 
-    $ok = $false
+    $state = 'fail'
     if ($Manager -eq 'winget' -and $wgId) {
-        $ok = Install-Winget -Id $wgId -Name $name
-        if (-not $ok -and $chId -and (Test-CommandExists 'choco')) {
+        $state = Install-Winget -Id $wgId -Name $name
+        if ($state -eq 'fail' -and $chId -and (Test-CommandExists 'choco')) {
             Write-Status 'WARN' 'winget falhou; tentando choco'
-            $ok = Install-Choco -Id $chId -Name $name
+            $state = Install-Choco -Id $chId -Name $name
         }
     } elseif ($Manager -eq 'choco' -and $chId) {
-        $ok = Install-Choco -Id $chId -Name $name
-        if (-not $ok -and $wgId -and (Test-CommandExists 'winget')) {
+        $state = Install-Choco -Id $chId -Name $name
+        if ($state -eq 'fail' -and $wgId -and (Test-CommandExists 'winget')) {
             Write-Status 'WARN' 'choco falhou; tentando winget'
-            $ok = Install-Winget -Id $wgId -Name $name
+            $state = Install-Winget -Id $wgId -Name $name
         }
     } elseif ($pipPk) {
-        $ok = Install-Pip -Pkg $pipPk
+        $state = Install-Pip -Pkg $pipPk
     } elseif ($npmPk) {
         Write-Status 'INFO' "npm install -g $npmPk"
         if ($Apply) {
             & npm install -g $npmPk 2>&1 | ForEach-Object { Write-Host "      $_" -ForegroundColor DarkGray }
-            $ok = ($LASTEXITCODE -eq 0)
-        } else { $ok = $true }
+            $state = $(if ($LASTEXITCODE -eq 0) { 'ok' } else { 'fail' })
+        } else { $state = 'ok' }
     } elseif ($cargoPk) {
         Write-Status 'INFO' "cargo install $cargoPk"
         if ($Apply) {
             & cargo install $cargoPk 2>&1 | ForEach-Object { Write-Host "      $_" -ForegroundColor DarkGray }
-            $ok = ($LASTEXITCODE -eq 0)
-        } else { $ok = $true }
+            $state = $(if ($LASTEXITCODE -eq 0) { 'ok' } else { 'fail' })
+        } else { $state = 'ok' }
     } else {
-        $ok = Install-Manual -Url $tool.Url -Name $name -Why $tool.Why
+        $state = Install-Manual -Url $tool.Url -Name $name -Why $tool.Why
     }
 
-    if ($ok) { $installed += $name } else { $manual += $name }
+    # `present` é sucesso (a ferramenta existe), mas não foi ESTE script que a
+    # instalou — vai para "já presentes" para o resumo não mentir.
+    if ($state -eq 'ok') { $installed += $name }
+    elseif ($state -eq 'present') { $skipped += $name }
+    else { $manual += $name }
 }
 
 # ── Perfil "plugins": instala os plugins no x64dbg ──────────────────────────

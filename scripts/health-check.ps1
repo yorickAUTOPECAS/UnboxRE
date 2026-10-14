@@ -197,18 +197,53 @@ function Test-HostToolchain {
 
     # Ferramentas de build de componentes locais
     $buildTools = @(
-        @{ N = 'zig';    Args = @('version'); Why = 'compila o x64dbg-MCP (mín. 0.14.0)' },
+        @{ N = 'zig';    Args = @('version'); Why = 'compila o x64dbg-MCP (mín. 0.14.0)'; Winget = 'zig.zig' },
         @{ N = 'rustc';  Args = @('--version'); Why = 'algumas ferramentas do catálogo' },
         @{ N = 'cargo';  Args = @('--version'); Why = 'algumas ferramentas do catálogo' },
-        @{ N = 'cmake';  Args = @('--version'); Why = 'builds nativos' },
+        @{ N = 'cmake';  Args = @('--version'); Why = 'builds nativos'; Winget = 'Kitware.CMake' },
         @{ N = 'python'; Args = @('--version'); Why = 'scripts e ferramentas Python' },
         @{ N = 'pip';    Args = @('--version'); Why = 'instalação de ferramentas Python' },
         @{ N = 'wsl';    Args = @('--status'); Why = 'ambiente Linux (ELF, pwndbg, unblob)' }
     )
+
+    # PATH obsoleto ≠ ferramenta ausente. O winget registra o pacote e só depois
+    # atualiza o PATH — uma janela aberta ANTES da instalação não herda o PATH novo,
+    # e o probe por comando diria "ausente" numa máquina que tem a ferramenta
+    # (medido nesta rodada: Zig 0.17.0, CMake 4.4.4 e Ninja 1.13.2 presentes no
+    # winget e fora do PATH da sessão). Uma única chamada ao `winget list` responde
+    # por todas as ferramentas — lazy, porque custa alguns segundos.
+    $script:wingetPackages = $null
+    function Get-WingetPackages {
+        if ($null -ne $script:wingetPackages) { return $script:wingetPackages }
+        $script:wingetPackages = @{}
+        if (-not (Test-CommandExists 'winget')) { return $script:wingetPackages }
+        try {
+            # `--source winget` muda as colunas: Name / Id / Version / Available —
+            # NÃO existe coluna Source (medido). As colunas são separadas por 2+
+            # espaços, então dividir por eles é o que sobrevive a um nome com espaço
+            # ("Antigravity 2.2.1") sem confundir com o Id.
+            $lines = & winget list --source winget --disable-interactivity 2>$null
+            foreach ($l in $lines) {
+                $cols = @($l -split '\s{2,}' | Where-Object { $_ -ne '' })
+                if ($cols.Count -ge 3 -and $cols[0].Trim() -ne 'Name') {
+                    $script:wingetPackages[$cols[1].Trim().ToLower()] = $cols[2].Trim()
+                }
+            }
+        } catch { }
+        return $script:wingetPackages
+    }
+
     foreach ($t in $buildTools) {
         $v = Get-CommandVersion -Name $t.N -VersionArgs $t.Args
         if ($null -eq $v) {
-            Add-Result "host:$($t.N)" 'WARN' "ausente ($($t.Why))" "instale quando precisar — ver docs/04-instalacao.md"
+            $wgId = Get-Field $t 'Winget'
+            $wgVer = $null
+            if ($wgId) { $wgVer = (Get-WingetPackages)[$wgId.ToLower()] }
+            if ($wgVer) {
+                Add-Result "host:$($t.N)" 'WARN' "$($t.N) $wgVer instalado pelo winget, mas fora do PATH desta sessão" 'abra uma janela nova (o PATH é herdado só depois da instalação)'
+            } else {
+                Add-Result "host:$($t.N)" 'WARN' "ausente ($($t.Why))" "instale quando precisar — ver docs/04-instalacao.md"
+            }
         } else {
             # 'wsl --status' devolve muitas linhas; resume
             $short = $v
@@ -225,7 +260,14 @@ function Test-HostToolchain {
             $need = $Matches[1]
             $have = Get-CommandVersion -Name 'zig' -VersionArgs @('version')
             if ($null -eq $have) {
-                Add-Result 'mcp:zig-min' 'WARN' "requer Zig >= $need; zig ausente" ("instale Zig >= " + $need)
+                # Mesmo caso do host:zig: o winget pode ter o Zig numa versão que só
+                # falta chegar ao PATH desta sessão — vale checar antes de mandar instalar.
+                $wgZig = (Get-WingetPackages)['zig.zig']
+                if ($wgZig -and ([version](($wgZig -replace '[^0-9\.]', '').Trim('.')) -ge [version]$need)) {
+                    Add-Result 'mcp:zig-min' 'OK' "zig $wgZig (winget) >= $need — fora do PATH desta sessão"
+                } else {
+                    Add-Result 'mcp:zig-min' 'WARN' "requer Zig >= $need; zig ausente" ("instale Zig >= " + $need)
+                }
             } else {
                 $haveClean = ($have -replace '[^0-9\.]', '').Trim('.')
                 if ([version]$haveClean -ge [version]$need) {

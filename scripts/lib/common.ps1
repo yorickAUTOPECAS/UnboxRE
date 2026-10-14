@@ -126,7 +126,16 @@ function Get-Field {
 }
 
 function Test-PathExists {
-    param([Parameter(Mandatory)][string]$Path)
+    <#
+        Caminho existe? Aceita $null/cadeia vazia e devolve $false em vez de explodir.
+        Importa no bootstrap a partir de máquina ZERADA: quem descobre o caminho de uma
+        ferramenta ausente (Resolve-GhidraHome, Resolve-JdkHome…) devolve vazio, e o
+        chamador quer reportar FAIL, não um erro de binding do PowerShell. Foi o que
+        aconteceu de verdade: com ghidra/ removido, health-check.ps1 morria na seção
+        "Ferramentas do núcleo" (linha 247) em vez de listar o que falta.
+    #>
+    param([AllowEmptyString()][string]$Path)
+    if ([string]::IsNullOrWhiteSpace($Path)) { return $false }
     return (Test-Path -LiteralPath $Path -ErrorAction SilentlyContinue)
 }
 
