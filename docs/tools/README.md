@@ -57,6 +57,12 @@ A seção **"quando NÃO usar"** é obrigatória. A causa mais comum de trabalho
 | [unicorn-qiling.md](unicorn-qiling.md) | GPL-2.0 | emulação de CPU e de sistema |
 | [pwndbg-gef.md](pwndbg-gef.md) | GPL-3.0 / MIT | GDB turbinado para ELF |
 
+### Diagnóstico do loader (Windows)
+
+| Ficha | Licença | Papel |
+|---|---|---|
+| [gflags.md](gflags.md) | `[COMERCIAL]` (EULA Microsoft) | *loader snaps*: ver a decisão do loader quando um `.exe` é recusado com 0xC000007B |
+
 ### Desobfuscação
 
 | Ficha | Licença | Papel |

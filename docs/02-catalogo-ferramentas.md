@@ -265,6 +265,24 @@ Além do Ghidra, o que falta para análise estática *profissional e scriptável
 - **Quando usar:** **primeiro passo dinâmico** de qualquer alvo Windows — o Procmon mostra o que o alvo *faz* antes de você abrir o debugger.
 - **Como usar:** `$ procmon /Quiet /Minimized /BackingFile trace.pml` → `procmon /OpenLog trace.pml /SaveAs trace.csv`
 - **Integração:** `trace.csv` em `captures/`; define os pontos de breakpoint que você vai usar no x64dbg.
+- **Atribuição:** Microsoft (Sysinternals) — licença própria, `LicenseRef-Microsoft-Sysinternals-EULA` em `config/licenses.json`.
+
+### b.9 gflags (Global Flags Editor) + loader snaps `⬜` — `[COMERCIAL]` (grátis, EULA Microsoft)
+
+- **O que faz:** liga o **`+sls` — “Show loader snaps”** (`FLG_SHOW_LDR_SNAPS = 0x02`): o loader do `ntdll` imprime cada passo da montagem da imagem (mapeamento, seções, imports, relocations, dependências e a decisão final).
+- **Quando usar:** **um `.exe` é recusado pelo Windows antes do entrypoint** (`0xC000007B`, `0xC0000135`, `0xC0000142`). Sem snaps só existe o sintoma — nada dentro do processo roda, logo não há backtrace nem log. Ver [../reports/root-cause-0xc000007b.md](../reports/root-cause-0xc000007b.md).
+- **Como usar (sem instalar nada — o caminho que este toolkit usa):**
+  ```powershell
+  PS> .\scripts\diagnose-load.mjs alvo.exe                 # o que está torto no PE
+  PS> .\scripts\load-snaps.ps1 -Image alvo.exe -Apply      # em shell ELEVADO (escreve HKLM)
+  PS> .\scripts\capture-debugprint.ps1 -Seconds 30 -OutFile work\alvo\evidence\loadsnaps.txt
+  PS> # iniciar alvo.exe em outra janela, durante os 30 s
+  PS> .\scripts\load-snaps.ps1 -Image alvo.exe -Disable -Apply   # desligar ao terminar
+  ```
+  Com o gflags instalado, a equivalência é `gflags /i alvo.exe +sls`.
+- **Integração:** a saída vai para `evidence/` e é interpretada depois (regra do projeto); alimenta o veredito de `diagnose-load.mjs` e o `docs/06-workflows.md` (dump recusado). Leitores: x64dbg, WinDbg, `capture-debugprint.ps1`.
+- **Instalação:** **não existe pacote no winget** (`winget search "debugging tools"` → nada) e o pacote do WinDbg **não traz** `gflags.exe` (medido: os `.exe` do pacote são `createdump`, `DbgX.Mcp.Proxy`, `DbgX.Shell`, `DebuggerCredentialManager`). O gflags vem do componente *Debugging Tools for Windows* do Windows SDK/WDK — por isso o par `load-snaps.ps1` + `capture-debugprint.ps1` existe: mesmo efeito, sem instalar o SDK.
+- **Atribuição:** Microsoft (Debugging Tools for Windows) — `LicenseRef-Microsoft-SDK-WDK-EULA` em `config/licenses.json`. Ficha completa: [tools/gflags.md](tools/gflags.md).
 
 ---
 

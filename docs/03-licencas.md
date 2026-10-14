@@ -123,6 +123,7 @@ exige atribuição).
 | BinDiff | `[COMERCIAL]` (grátis p/ uso) | Diaphora/ghidriff cobrem |
 | Burp Suite | `[FREEMIUM]` | mitmproxy cobre o essencial |
 | WinDbg | `[COMERCIAL]` (grátis) | EULA Microsoft; redistribuição via winget |
+| gflags (Debugging Tools for Windows) | `[COMERCIAL]` (grátis) | EULA Microsoft; **não** existe no winget — vem com o componente *Debugging Tools for Windows* do Windows SDK/WDK, e por isso o toolkit oferece `scripts/load-snaps.ps1` (MIT) que escreve o mesmo bit. Ficha: [tools/gflags.md](tools/gflags.md) |
 | pestudio | `[FREEMIUM]` | PE triagem |
 | MobSF | `[FREEMIUM]` | Android |
 | rev.ng | `[FREEMIUM]` | recompilação |

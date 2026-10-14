@@ -120,6 +120,7 @@ deles **não** é publicado aqui — apenas referenciado, com crédito:
 | **pwndbg** | MIT | <https://github.com/pwndbg/pwndbg> |
 | **LLDB** | Apache-2.0 (LLVM) | <https://lldb.llvm.org> |
 | **WinDbg + TTD** | `[COMERCIAL]` (grátis) | Microsoft / <https://learn.microsoft.com/windows-hardware/drivers/debugger/> |
+| **gflags** (Debugging Tools for Windows) | `[COMERCIAL]` (grátis, EULA Microsoft) | Microsoft / <https://learn.microsoft.com/windows-hardware/drivers/debugger/gflags> |
 | **Sysinternals** (Procmon, ProcExp, TCPView, Autoruns) | `[COMERCIAL]` (grátis) | Microsoft / <https://learn.microsoft.com/sysinternals/> |
 | **frida-tools** (pacote CLI) | `wxWindows`/LGPL-like | parte do projeto Frida — Ole André V. Ravnås / <https://github.com/frida/frida-tools> |
 | **PE-sieve** | BSD-2 | hasherezade / <https://github.com/hasherezade/pe-sieve> |
