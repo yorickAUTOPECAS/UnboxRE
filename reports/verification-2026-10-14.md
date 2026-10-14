@@ -903,11 +903,13 @@ bash scripts/prova-c.sh ; bash scripts/prova-d-hwbreak-armed.sh
 * Os 6 alvos reais da pasta `Alvos` **não** foram tocados nesta rodada, por escopo: a primeira
   tarefa do round seguinte é listar o conteúdo da pasta (nome, dificuldade declarada) antes de
   escolher qual atacar.
-### 9.9 Nota: o CI dos dois commits ficou vermelho por indisponibilidade de um site de terceiro
 
-Os dois commits desta rodada foram empurrados com ~1 minuto de diferença (`dcfdebe`, `d270b5c`) e
-**os dois** ficaram com o job `licenses` vermelho. Investigado, não é defeito do código nem do
-conteúdo do commit — é indisponibilidade de **um** host de terceiro. Log do job (run
+### 9.9 Nota: o CI ficou vermelho por indisponibilidade de um site de terceiro
+
+Os dois primeiros commits desta rodada foram empurrados com ~1 minuto de diferença (`dcfdebe`,
+`d270b5c`) e **os dois** ficaram com o job `licenses` vermelho; o terceiro (`3022d93`) repetiu a
+falha. Investigado, não é defeito do código nem do conteúdo do commit — é indisponibilidade de
+**um** host de terceiro. Log do job (run
 [38597582145](https://github.com/yorickAUTOPECAS/UnboxRE/actions/runs/38597582145)):
 
 ```console
