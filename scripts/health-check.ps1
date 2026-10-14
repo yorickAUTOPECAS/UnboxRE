@@ -433,6 +433,20 @@ function Test-CatalogTools {
     }
     Add-Result 'catalog:summary' 'INFO' "$present de $($catalog.Count) presentes no PATH" 'instale por perfil: scripts/bootstrap-windows.ps1 -Profile core|static|dynamic'
 
+    # Bibliotecas Python que o toolkit USA por script (não têm comando no PATH, então o
+    # laço acima as veria como ausentes para sempre). Medido no round 8.1: o capstone
+    # estava instalado e nenhuma checagem sabia disso.
+    $pyModules = @(
+        @{ M = 'capstone'; Why = 'desmontagem estática — scripts/disasm-range.py' }
+    )
+    foreach ($m in $pyModules) {
+        if (Test-PythonModule $m.M) {
+            Add-Result "pymod:$($m.M)" 'OK' $m.Why
+        } else {
+            Add-Result "pymod:$($m.M)" 'SKIP' "módulo Python ausente — $($m.Why)" "python -m pip install --user $($m.M)"
+        }
+    }
+
     # Ferramentas no diretório tools/ (instaladas pelo bootstrap, fora do PATH)
     $toolsDir = Join-Path $root 'tools'
     if (Test-PathExists $toolsDir) {

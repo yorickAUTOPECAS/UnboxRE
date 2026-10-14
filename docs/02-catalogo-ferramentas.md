@@ -121,7 +121,7 @@ Além do Ghidra, o que falta para análise estática *profissional e scriptável
   ```bash
   $ uv pip install lief
   $ python -c "import lief;p=lief.parse('target.exe');print(p.header.machine_type,p.entrypoint)"
-  $ python scripts/patch-entry.py            # ver work/<alvo>/scripts/
+  $ python work/<alvo>/scripts/patch-entry.py   # script DO CASO, não do toolkit (docs/01 §2)
   ```
 - **Integração:** entrada/saída do pipeline (parseia o que o Ghidra analisou); alimenta o `04-instalacao` de patching.
 
@@ -130,7 +130,15 @@ Além do Ghidra, o que falta para análise estática *profissional e scriptável
 - **O que faz:** Capstone = **disassembler** programático multi-arch; Keystone = **assembler** programático.
 - **Quando usar:** dentro de scripts Python (parsear um trace, montar um stub, desmontar bytes de memória do x64dbg/Frida).
 - **Como usar:** `python -c "from capstone import *;print(Cs(CS_ARCH_X86,CS_MODE_64).disasm(b'\x48\x31\xc0',0x1000).__next__())"`
+  e, no toolkit, `python scripts/disasm-range.py <alvo> <rva-ini> --fim <rva-fim> --strings`
+  (o caminho entre a triagem e o debugger: lê o trecho de código sem abrir Ghidra).
 - **Integração:** base de quase todo script de análise custom; usado por angr/Qiling.
+- **Instalação (medida no round 8.1):** o Capstone **não tem comando próprio** — o
+  `cstool` não vem no pacote do pip — então nem o `health-check` nem o bootstrap o
+  enxergavam: entra agora pela entrada `Capstone` do perfil `static`
+  (`python -m pip install --user capstone`), sondado por **módulo Python** (`PyModule`).
+  Keystone continua só no caminho Linux (`bootstrap-wsl.sh`, `keystone-engine`) — não há
+  consumidor dele no Windows hoje.
 
 ### a.4 YARA + yara-x `⬜` — `BSD-3` / `Apache-2.0`
 

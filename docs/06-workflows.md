@@ -30,6 +30,26 @@ trabalhe sobre uma cópia em `unpacked/`.
 cp acme.exe ../unpacked/acme.work.exe
 ```
 
+```bash
+# 3) Triagem ESTÁTICA — nenhum destes abre GUI, debugger ou Ghidra
+cd ../..   # raiz do toolkit
+node scripts/identify-protections.mjs work/acme-app-2.1/unpacked/acme.work.exe   # está empacotado? com o quê?
+node scripts/triage-static.mjs work/acme-app-2.1/unpacked/acme.work.exe --refs   # o que ele é: TLS, imports, strings e onde são usadas
+node scripts/diagnose-load.mjs work/acme-app-2.1/unpacked/acme.work.exe          # ele carrega? (0xC000007B)
+python scripts/disasm-range.py work/acme-app-2.1/unpacked/acme.work.exe 0x1520 --fim 0x15b4 --strings   # ~100 bytes de código
+```
+
+**Por quê antes de qualquer ferramenta pesada:** a resposta que decide o resto do
+plano é "este binário está empacotado/protegido ou é só lógica?". Se **não** houver
+proteção de carregamento, não existe dump, OEP nem IAT a reconstruir — o Cenário 1
+inteiro (e o debugger) é desnecessário, e o alvo se resolve lendo o código. Se houver,
+é o Cenário 1 com breakpoint de hardware. As três ferramentas acima se dividem o
+trabalho: assinatura de packer (`identify-protections`), estrutura e o que o programa
+*imprime* (`triage-static`) e a decisão do loader (`diagnose-load`). Medido no round
+8.1: um alvo de 13 KB **sem** proteção de carga foi resolvido por esse caminho, com o
+debugger aberto **zero** vezes — e sem Ghidra, porque `disasm-range.py` lê o trecho
+que importa. Isso não é atalho: é a triagem dizendo o que o alvo pede.
+
 ---
 
 ## Cenário 1 — PE x64 protegido por packer simples (UPX)

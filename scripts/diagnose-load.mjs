@@ -29,7 +29,23 @@
  *   2. EXECUTA o alvo (a menos que --no-run) e reporta o status real do loader;
  *      no Windows o status é o NTSTATUS completo (ex. 3221225595 = 0xC000007B).
  *
- * Uso: node scripts/diagnose-load.mjs <arquivo.exe> [--no-run] [--json]
+ * Alvo de CONSOLE que lê stdin (medido no round 8.1, com um crackme)
+ * -------------------------------------------------------------------
+ * Sem `--stdin`, o processo recebe EOF imediatamente: um programa que pergunta a senha lê
+ * nada, escolhe o caminho de erro e sai com o código DELE (no caso, 1). O script então
+ * imprimia `exit=0x1 (status não catalogado)`, que se lê como defeito do binário — não é:
+ * é o programa funcionando. Duas correções: `--stdin <texto>` (ou `--stdin-file <arq>`)
+ * alimenta a entrada, e um status abaixo de 0x80000000 passa a ser reportado como "saiu
+ * normalmente com status N (código do próprio programa)", separado de um NTSTATUS de falha.
+ *
+ * E o status sozinho não basta: aquele crackme sai 0 tanto com a senha certa quanto com a
+ * errada — quem distingue é o TEXTO que ele imprime. Por isso o script também captura a
+ * saída do alvo (stdout+stderr, até 8 linhas) e a mostra; `--no-output` desliga. Com
+ * `--stdin` + a saída capturada, ele passa a ser um harness black-box de linha de comando
+ * (o que antes exigia `printf senha | alvo.exe` na mão).
+ *
+ * Uso: node scripts/diagnose-load.mjs <arquivo.exe> [--no-run] [--stdin <texto>]
+ *         [--stdin-file <arquivo>] [--no-output] [--json]
  * Exit: 0 analisado e o alvo carregou (ou --no-run) · 1 o loader rejeitou (inclusive
  *       quando o `CreateProcess` falha, ex. `EFTYPE`/193 = ERROR_BAD_EXE_FORMAT, que é o
  *       mesmo erro visto como `0xC000007B` quando o processo chega a ser criado) ·
@@ -42,13 +58,33 @@ import { spawnSync } from "node:child_process";
 
 const args = process.argv.slice(2);
 if (args.includes("--help") || args.includes("-h") || args.length === 0) {
-  console.log("uso: node scripts/diagnose-load.mjs <arquivo.exe> [--no-run] [--json]");
-  console.log("  --no-run  só a análise estática (não executa o alvo)");
+  console.log("uso: node scripts/diagnose-load.mjs <arquivo.exe> [--no-run] [--stdin <texto>] [--stdin-file <arquivo>] [--json]");
+  console.log("  --no-run              só a análise estática (não executa o alvo)");
+  console.log("  --stdin <texto>       alimenta a entrada do alvo (alvo de console; sem isso ele recebe EOF)");
+  console.log("  --stdin-file <arq>    idem, lendo o texto de um arquivo");
+  console.log("  --no-output           não mostra a saída capturada do alvo (stdout/stderr)");
   process.exit(args.length === 0 ? 2 : 0);
 }
 const JSON_OUT = args.includes("--json");
 const NO_RUN = args.includes("--no-run");
-const file = args.find((a) => !a.startsWith("--"));
+const NO_OUTPUT = args.includes("--no-output");
+const argVal = (flag) => (args.includes(flag) ? args[args.indexOf(flag) + 1] : null);
+const file = args.find((a) => !a.startsWith("--") && args[args.indexOf(a) - 1] !== "--stdin" && args[args.indexOf(a) - 1] !== "--stdin-file");
+
+// stdin do alvo: sem isto, um alvo de console recebe EOF e sai pelo caminho de erro (o
+// código de saída dele seria lido como se fosse falha de loader).
+let stdinData = null;
+const stdinInline = argVal("--stdin");
+const stdinFile = argVal("--stdin-file");
+if (stdinInline !== null) stdinData = stdinInline.endsWith("\n") ? stdinInline : `${stdinInline}\n`;
+else if (stdinFile !== null) {
+  try {
+    stdinData = readFileSync(stdinFile);
+  } catch (e) {
+    console.error(`[!!] --stdin-file ${stdinFile}: ${e.message}`);
+    process.exit(2);
+  }
+}
 
 let buf;
 try {
@@ -241,7 +277,9 @@ const NTSTATUS = {
 };
 let run = { skipped: true };
 if (!NO_RUN) {
-  const r = spawnSync(file, [], { timeout: 8000 });
+  // encoding: captura a saída do alvo (um alvo de console sem stdin morre no EOF e o que
+  // ele imprimiu é a única prova do caminho que ele tomou).
+  const r = spawnSync(file, [], { timeout: 8000, encoding: "utf8", ...(stdinData !== null ? { input: stdinData } : {}) });
   if (r.error) {
     // O processo nem chegou a existir: é o MESMO erro de imagem inválida, detectado um
     // estágio antes (o NTSTATUS 0xC000007B e o Win32 193/ERROR_BAD_EXE_FORMAT são o mesmo
@@ -252,11 +290,26 @@ if (!NO_RUN) {
       `CreateProcess falhou com ${r.error.code} (ERROR_BAD_EXE_FORMAT = 193 é o mesmo STATUS_INVALID_IMAGE_FORMAT visto como 0xC000007B quando o processo chega a ser criado)`);
   } else {
     const status = r.status === null ? null : r.status >>> 0;
+    // Status < 0x80000000 NÃO é NTSTATUS: é o código de saída do PRÓPRIO programa (um
+    // crackme que termina pelo caminho de erro sai com 1). Dizer "não catalogado" nesse
+    // caso faz o analista procurar defeito de loader onde não há (medido no round 8.1).
+    const meaning =
+      status === null ? "sem status (timeout/sinal)"
+      : NTSTATUS[status] ? NTSTATUS[status]
+      : status < 0x80000000
+        ? `saiu normalmente com status ${status} — código do PRÓPRIO programa, não é falha de loader`
+        : "status NTSTATUS não catalogado";
+    const stdinNote = stdinData !== null ? { fed: true, bytes: Buffer.byteLength(stdinData) } : { fed: false };
+    const clean = (s) => String(s ?? "").replace(/\r/g, "").replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, "");
+    const output = `${clean(r.stdout)}${clean(r.stderr)}`;
     run = {
       skipped: false,
       exit: status,
       hex: status === null ? null : `0x${status.toString(16)}`,
-      meaning: status === null ? "sem status (timeout/sinal)" : (NTSTATUS[status] || "status não catalogado"),
+      stdin: stdinNote,
+      output: output.trim() || null,
+      outputTruncated: r.error?.code === "ETIMEDOUT",
+      meaning,
     };
     if (run.exit === 0xc000007b) {
       add("high", "loader-rejeitou", "a execução terminou com 0xC000007B: o loader rejeitou a imagem ANTES do entrypoint (é isto que este script diagnostica)");
@@ -294,7 +347,19 @@ if (JSON_OUT) {
   for (const f of findings) console.log(`  [${tag[f.level]}] ${f.code} — ${f.detail}`);
   if (run.skipped) console.log("  [i ] run — pulado (--no-run)");
   else if (run.error) console.log(`  [!!] run — ${run.error} (${run.meaning})`);
-  else console.log(`  [${run.exit === 0xc000007b ? "!!" : "i "}] run — exit=${run.hex} (${run.meaning})`);
+  else {
+    const stdinInfo = run.stdin?.fed ? ` · stdin alimentado (${run.stdin.bytes} bytes)` : " · stdin: EOF (sem --stdin)";
+    console.log(`  [${run.exit === 0xc000007b ? "!!" : "i "}] run — exit=${run.hex} (${run.meaning})${stdinInfo}`);
+    if (!NO_OUTPUT) {
+      if (!run.output) console.log("  [i ] saída do alvo — (stdout+stderr vazios)");
+      else {
+        const lines = run.output.split(/\n/).filter((l) => l.trim() !== "");
+        const shown = lines.slice(0, 8);
+        console.log(`  [i ] saída do alvo (${lines.length} linha(s)${lines.length > shown.length ? ", mostrando 8" : ""}):`);
+        for (const l of shown) console.log(`        | ${l.slice(0, 200)}`);
+      }
+    }
+  }
   console.log(`\n  Veredito: ${verdict}`);
   console.log("");
 }

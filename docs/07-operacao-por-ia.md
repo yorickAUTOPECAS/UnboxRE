@@ -105,6 +105,15 @@ próximo experimento.
 **Por quê health-check primeiro:** metade dos "o REA não funciona" é `JAVA_HOME` errado.
 Diagnóstico de 10 segundos antes de 2 horas de depuração.
 
+**Recon e triagem são ESTÁTICOS — o debugger e o Ghidra vêm depois, e só se o alvo
+pedir.** `identify-protections.mjs` (está empacotado? com o quê?),
+`triage-static.mjs` (o que ele importa, o que ele imprime, onde isso é usado) e
+`diagnose-load.mjs` (ele carrega?) respondem isso sem abrir nenhuma GUI, e a resposta
+muda o plano inteiro: sem proteção de carregamento **não existe** dump, OEP ou IAT a
+reconstruir. Medido no round 8.1: um alvo real de 13 KB foi resolvido nesse caminho
+com o debugger aberto **zero** vezes. Abrir o x64dbg antes da triagem é o jeito mais
+caro de descobrir que não era preciso.
+
 ---
 
 ## 5. Padrões de MCP que funcionam bem
@@ -163,6 +172,7 @@ interpreta a partir do que foi coletado, com o contrato de [06-workflows.md](06-
 ## 8. Checklist de uma sessão de IA bem-sucedida
 
 - [ ] `health-check` passou (ou as falhas estão registradas)
+- [ ] a triagem estática rodou **antes** de qualquer GUI (`identify-protections`, `triage-static`, `diagnose-load`) — e o veredito está em `evidence/`
 - [ ] o alvo tem hash e o `original/` está intacto
 - [ ] todo achado em `findings.md` cita um arquivo de evidência
 - [ ] todo achado tem nível de confiança

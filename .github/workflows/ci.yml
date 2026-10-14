@@ -113,6 +113,18 @@ jobs:
           set -euo pipefail
           for f in scripts/*.sh; do bash -n "$f" && echo "ok: $f"; done
 
+      - name: Sintaxe de todos os scripts Python (.py)
+        # O toolkit tem script Python (disasm-range.py). O equivalente do `node --check`
+        # e do `bash -n` para Python é COMPILAR sem executar: um erro de sintaxe só
+        # apareceria na mão de quem estivesse analisando um alvo, no meio do caso.
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          py=(scripts/*.py)
+          if [[ ${#py[@]} -eq 0 ]]; then echo "nenhum .py em scripts/"; exit 0; fi
+          for f in "${py[@]}"; do python3 -m py_compile "$f" && echo "ok: $f"; done
+          rm -rf scripts/__pycache__   # py_compile deixa resíduo; não versione e não deixe sujo
+
       - name: Sintaxe de todos os scripts PowerShell (.ps1)
         # O host do toolkit é o Windows PowerShell 5.1. Um erro de sintaxe num .ps1
         # só aparece quando alguém o executa — a menos que o parseie aqui.

@@ -121,6 +121,11 @@ $Catalog = @(
        Why = 'YARA reescrito em Rust; regras do YARA-X não rodam no YARA 4'; License = 'BSD-3' }
     @{ Name = 'capa'; Probe = 'capa'; Profiles = @('static'); Pip = 'flare-capa'; Url = 'https://github.com/mandiant/capa'
        Why = 'mapeia capacidades (MITRE ATT&CK/MBC) direto do binário'; License = 'Apache-2.0' }
+    # Capstone é BIBLIOTECA: não tem comando próprio (o `cstool` não vem no pacote do pip),
+    # então o probe é por MÓDULO Python (`PyModule`), não por comando. Ele é dependência de
+    # `scripts/disasm-range.py` — sem ele o script sai 2 com instrução de instalação.
+    @{ Name = 'Capstone'; Profiles = @('static'); PyModule = 'capstone'; Pip = 'capstone'; Url = 'https://www.capstone-engine.org/'
+       Why = 'disassembler programático — scripts/disasm-range.py depende dele'; License = 'BSD-3' }
     @{ Name = 'UPX'; Probe = 'upx'; Profiles = @('static'); Winget = 'UPX.UPX'; Url = 'https://github.com/upx/upx/releases'
        Why = 'unpack/repack UPX — o packer mais comum'; License = 'GPL-2' }
     @{ Name = 'retoolkit'; Probe = 'pe-sieve'; Profiles = @('static'); Winget = 'mentebinaria.retoolkit'; Url = 'https://github.com/mentebinaria/retoolkit'
@@ -336,9 +341,17 @@ $failed = @()
 foreach ($tool in $selected) {
     $name = $tool.Name
     $probe = $tool.Probe
+    $pyMod = Get-Field $tool 'PyModule'
 
-    if ($probe -and (Test-CommandExists $probe)) {
-        Write-Status 'OK' "$name — já instalado ($probe)"
+    # Duas formas de "já está aqui": comando no PATH ou módulo Python importável
+    # (bibliotecas como o Capstone não têm comando). Sem a segunda, o bootstrap diria
+    # "instalando capstone" a cada execução numa máquina que já o tem.
+    $byCmd = [bool]($probe -and (Test-CommandExists $probe))
+    $byMod = [bool]($pyMod -and (Test-PythonModule $pyMod))
+
+    if ($byCmd -or $byMod) {
+        $how = $(if ($byCmd) { $probe } else { "módulo Python '$pyMod'" })
+        Write-Status 'OK' "$name — já instalado ($how)"
         $skipped += $name
         continue
     }

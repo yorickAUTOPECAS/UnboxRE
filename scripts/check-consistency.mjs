@@ -21,7 +21,9 @@
  *      THIRD_PARTY_NOTICES.md  (license COMPLETENESS).
  *   3. Every `-Profile <x>` used in the docs is accepted by bootstrap-windows.ps1.
  *   4. Every `gen-mcp-config.mjs --<flag>` used in the docs is a real flag.
- *   5. Every scripts/*.(ps1|sh|mjs) referenced in the docs exists on disk.
+ *   5. Every scripts/*.(ps1|sh|mjs|py) referenced in the docs exists on disk.
+ *      (.py entrou no round 8.1: o toolkit ganhou um caminho Python e uma referência a
+ *       script inexistente tem de ser pega aqui, não na mão de quem analisa um alvo)
  *   6. Every JSON template under config/mcp/ parses.
  *   7. Every relative markdown link in README/docs resolves to a real file.
  *
@@ -255,9 +257,17 @@ for (const file of docs) {
   const text = read(file);
   // A repo-relative script path starts at a boundary; a path like
   // "rea-main/scripts/rea.mjs" (a third-party entrypoint) must NOT be treated as
-  // "scripts/rea.mjs". We capture an optional ./ or ../ prefix and require the
-  // preceding char not to be part of a longer path.
-  for (const m of text.matchAll(/(?<![A-Za-z0-9_.\\/-])((?:\.{0,2}[\\/])?scripts[\\/][A-Za-z0-9._-]+\.(?:ps1|sh|mjs))/g)) {
+  // "scripts/rea.mjs", and neither must a placeholder path like
+  // "work/<alvo>/scripts/patch-entry.py" (a script OF THE CASE, not of the toolkit).
+  //
+  // A lookbehind that merely rejects word chars is not enough: with the optional
+  // "./"-style prefix, `/scripts/x.py` matches with the bare `/` consumed as prefix,
+  // so the char before THAT is `>` in `work/<alvo>/scripts/x.py` — not a word char —
+  // and the placeholder slipped through (measured: the .py extension landed this
+  // class of false positive the first time it ran). So the rule is a whitelist: the
+  // reference has to START at a line start or right after whitespace/a quote/a
+  // backtick/a bracket/an `=`/a `:` — which is what every real doc reference does.
+  for (const m of text.matchAll(/(?:^|[\s`'"(\[=:])((?:\.{0,2}[\\/])?scripts[\\/][A-Za-z0-9._-]+\.(?:ps1|sh|mjs|py))/gm)) {
     const rel = m[1].replace(/^\.{0,2}[\\/]/, "").replace(/\\/g, "/");
     if (!exists(rel)) fail("scripts", `${file}: referencia ${m[1]}, que não existe`);
   }
@@ -266,7 +276,7 @@ for (const file of docs) {
 // ── 5b. Every script is cited somewhere in the docs ──────────────────────────
 const docCorpus = docs.filter(exists).map(read).join("\n");
 const scriptFiles = walkFiles("scripts")
-  .filter((f) => /\.(ps1|sh|mjs)$/.test(f))
+  .filter((f) => /\.(ps1|sh|mjs|py)$/.test(f))
   .filter((f) => !f.includes("/lib/"));
 const undocumented = scriptFiles.filter((f) => !docCorpus.includes(f.split("/").pop()));
 for (const f of undocumented) {

@@ -26,6 +26,8 @@ não quebra nada, e nada é instalado/compilado/copiado sem uma flag explícita
 | `scan-secrets.ps1` | Windows (pwsh) | procura segredos e arquivos indevidos | não |
 | `gen-mcp-config.mjs` | Node | gera/valida as configs MCP por cliente | com `--apply` (grava em `config/mcp/generated/`) |
 | `identify-protections.mjs` | Node | triagem de packer/protetor por assinatura (UPX, VMProtect, Themida…) | não |
+| `triage-static.mjs` | Node | triagem **sem debugger**: cabeçalho/seções (permissões, entropia), **TLS callbacks** (código que o loader roda ANTES do entrypoint), imports por DLL e strings **só de seções não executáveis** com a RVA de cada uma — e, com `--refs`, onde cada uma é usada no código (uma passada no código, indexada; varrer por string não escala) | não |
+| `disasm-range.py` | Python + capstone | desmonta um intervalo de RVA (ou uma seção inteira com `--section .text`) e anota strings RIP-relativas. Dependência declarada: `capstone` — que entra pelo perfil `static` e é sondado por **módulo Python**, porque biblioteca não tem comando no PATH | não |
 | `diagnose-load.mjs` | Node | "por que este .exe sai com 0xC000007B?": vícios de loader (seções esvaziadas, dir em seção sem dados, ASLR sem reloc, `__security_cookie` em estado de execução) + o status real da execução | não |
 | `make-packed-sample.mjs` | Node | fabrica um alvo empacotado (stub em `lib/pkr-stub.rs`) a partir de um PE que roda: XOR do código, IAT por DLL, EP → stub → OEP | sim (o `.exe` gerado) |
 | `rebuild-iat.mjs` | Node | equivalente headless do *Fix Dump* do Scylla: acha a IAT num dump de memória, resolve cada slot (nome/ordinal) e escreve uma seção `.idata2` nova | com `--out` |
@@ -89,6 +91,11 @@ catálogo declarado.
 - **Dry-run sempre primeiro.** Sem `-Apply`, o script mostra o plano exato.
 - **Nunca sudo.** Se um instalador exigir elevação, ele mesmo pede — o script não
   contorna.
+- **Script Python que imprime símbolo** (`─`, `·`): o `stdout` do Python no Windows
+  herda a code page (**cp1252**) e o `print` do desenho derruba o script com
+  `UnicodeEncodeError` **no meio da saída** — medido no round 8.1, quando ela era
+  redirecionada para `evidence/`. Ajuste o encoding antes de imprimir (como em
+  `disasm-range.py`) ou fique em ASCII.
 - **Exit codes:** `0` sucesso · `1` falha de verificação · `2` erro de execução.
 - **Saída JSON** (`health-check.ps1 -Json`, `scan-secrets.ps1 -Json`) para CI.
 

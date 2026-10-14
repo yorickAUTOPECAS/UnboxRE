@@ -1044,3 +1044,16 @@ $ node scripts/verify-licenses.mjs
 > repositório correto — agora isso é a exceção (host realmente indisponível), não mais o
 > ruído de um 503 passageiro. E o modo de falhar continua explícito: o script nunca passa
 > silenciosamente quando não consegue ler a fonte primária.
+
+---
+
+## 10. Round 8.1 — primeiro alvo real (ponteiro)
+
+A rodada seguinte desta mesma data usou o toolkit contra um alvo que ele nunca viu
+(`nivel 1` de `Alvos`: `My_First_Crackme.exe`, 13 KB, **sem** proteção de carregamento) e
+tratou o resultado como QA: o relatório com o resultado técnico e o log de fricção — com o
+que foi corrigido em cada ponto e o que continua em aberto — está em
+[round-8-1-nivel-1.md](round-8-1-nivel-1.md). Em uma linha: o alvo foi resolvido sem abrir
+Ghidra nem debugger, e o caminho que faltava para isso (`triage-static.mjs`,
+`disasm-range.py`, `diagnose-load --stdin`, probe de **módulo Python** para o capstone)
+entrou no toolkit nesta rodada.

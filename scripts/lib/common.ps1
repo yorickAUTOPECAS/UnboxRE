@@ -101,6 +101,26 @@ function Get-CommandVersion {
     return 'presente'
 }
 
+function Test-PythonModule {
+    <#
+        Um MÓDULO Python é importável pelo `python` do PATH?
+
+        Existe porque biblioteca não tem comando próprio: o Capstone é catalogado desde
+        sempre e o probe por comando dizia "ausente" numa máquina onde o `pip install
+        --user` já tinha rodado (medido no round 8.1: `capstone 5.0.7` importável e nenhum
+        `cstool` no PATH). Sem isto o bootstrap reinstalava a cada execução e o resumo
+        nunca ficava verdadeiro.
+
+        Aceita SÓ o nome do módulo (regex) — o valor vem do catálogo, mas um dia pode vir
+        de outro lugar, e `python -c` é execução de código: nada de espaço, `;` ou aspas.
+    #>
+    param([Parameter(Mandatory)][string]$Name)
+    if ($Name -notmatch '^[A-Za-z_][A-Za-z0-9_.]*$') { return $false }
+    if (-not (Test-CommandExists 'python')) { return $false }
+    & python -c "import $Name" 2>$null
+    return ($LASTEXITCODE -eq 0)
+}
+
 function Get-Field {
     <#
         Acesso tolerante a campo ausente.
