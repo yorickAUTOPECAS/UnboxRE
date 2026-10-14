@@ -252,6 +252,25 @@ function Test-HostToolchain {
         }
     }
 
+    # WSL: o comando existir não significa que um alvo Linux rode. Medido nesta rodada:
+    # `wsl --status` responde numa máquina SEM nenhuma distro, e sem distro não há CPython
+    # nem loader ELF lá dentro — foi exatamente isso que travou o alvo `nivel 4` (runtime
+    # `.so` de CPython). Então a pergunta certa é "tem distro?", e quem responde é
+    # `wsl -l -q` (saída UTF-16: os NULs aparecem ao capturar; daí o -replace).
+    if (Test-CommandExists 'wsl') {
+        $distros = @()
+        try {
+            $distros = @(& wsl -l -q 2>$null |
+                ForEach-Object { ($_ -replace "`0", '').Trim() } |
+                Where-Object { $_ -ne '' })
+        } catch { }
+        if ($distros.Count -gt 0) {
+            Add-Result 'wsl:distro' 'OK' "$($distros -join ', ') — alvos ELF/pyzip e pwndbg rodam aqui"
+        } else {
+            Add-Result 'wsl:distro' 'WARN' 'WSL presente, mas SEM distro: nenhum alvo Linux roda' 'instale uma distro (`wsl --install -d Ubuntu`); sem virtualização no firmware, `wsl --set-version <distro> 1` registra sem Hyper-V — ver docs/04-instalacao.md'
+        }
+    }
+
     # Versão do Zig precisa ser >= 0.14.0 (build.zig.zon do MCP server)
     $zon = Join-Path $root 'x64dbg-mcp-server-main\build.zig.zon'
     if (Test-PathExists $zon) {

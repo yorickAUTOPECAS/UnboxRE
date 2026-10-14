@@ -226,17 +226,25 @@ $ curl -x http://127.0.0.1:8080 https://example.com -k   # deve passar pelo prox
 
 ---
 
-## 6. Fase 6 — `wsl`: laboratório Linux — **fora de escopo por ora**
+## 6. Fase 6 — `wsl`: laboratório Linux — **validado só para ELF/alvos Python**
 
-> O suporte atual do toolkit é **Windows 10/11**, e é onde o caminho crítico foi
-> testado de ponta a ponta. O laboratório Linux/WSL **não** foi validado nesta rodada:
-> o perfil continua documentado porque os scripts existem, mas trate-o como roadmap,
-> não como caminho suportado.
+> O suporte do toolkit é **Windows 10/11**, e é onde o caminho crítico foi testado de ponta a
+> ponta. O laboratório Linux/WSL foi, depois disso, **validado para o que ele existe**: um ELF64
+> (round 8.3) e um pyzip com runtime `.so` de CPython 3.13 (round 8.4) rodaram de verdade dentro
+> dele — [adendo](../reports/adendo-round-8-3-8-4-wsl.md). O restante do perfil (pwndbg, AFL++,
+> angr, Qiling, tooling Android/firmware) **não** foi provisionado nem exercitado.
+>
+> Dois limites medidos nesta máquina, para não surpreender ninguém:
+> (i) **WSL2 não sobe** — `wsl --set-version <distro> 2` devolve `HCS_E_HYPERV_NOT_INSTALLED`
+> (a virtualização não está habilitada no firmware), então a distro fica em **WSL1**, com kernel
+> `4.4.0-*` emulado; (ii) Ubuntu 26.04 **não tem `python3.13`** no repositório — o CPython 3.13
+> que o round 8.4 precisou veio do `uv`, dentro da VM (`uv python install 3.13`).
 
 ```powershell
 PS> .\scripts\bootstrap-wsl.sh          # executa dentro do WSL (dry-run, não instala)
-# ou, do zero:
-PS> wsl --install -d Ubuntu-24.04
+# ou, do zero (nesta máquina registrou a distro sem exigir virtualização no firmware):
+PS> wsl --install -d Ubuntu
+PS> wsl -l -v                           # confira a VERSION da distro (1 = WSL1)
 
 # instalar de fato — pede uma confirmação antes de mexer no sistema:
 PS> wsl -d Ubuntu -- bash -lc "cd $(wslpath -u 'C:\Users\Admin\Desktop\UnboxRE') && bash scripts/bootstrap-wsl.sh --apply"
@@ -251,9 +259,14 @@ Sem terminal interativo (pipe, `wsl -- bash -c`) a confirmação é dispensada.
 **Verificação:**
 
 ```bash
-$ wsl -d Ubuntu-24.04 -- bash -lc 'readelf --version && afl-fuzz -h | head -1'
-$ wsl -d Ubuntu-24.04 -- bash -lc 'python3 -c "import angr,qiling;print(\"ok\")"'
+$ wsl -d Ubuntu -- bash -lc 'uname -srm && cat /etc/os-release | head -2'
+$ wsl -d Ubuntu -- bash -lc 'readelf --version && afl-fuzz -h | head -1'
+$ wsl -d Ubuntu -- bash -lc 'python3 -c "import angr,qiling;print(\"ok\")"'
 ```
+
+A primeira linha responde em qualquer distro (o que foi validado aqui); as duas seguintes só
+passam depois do provisionamento — até agora `readelf` funciona e `afl-fuzz`/`angr`/`qiling`
+**não estão instalados** nesta máquina.
 
 **Por que WSL:** ELF/DWARF, Android tooling, AFL++ e emulação de firmware são
 Linux-first. Rodar no host Windows é atrito desnecessário.

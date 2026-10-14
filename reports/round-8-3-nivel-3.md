@@ -1,5 +1,9 @@
 # Round 8.3 — terceiro alvo real (`nivel 3`): resultado técnico + fricção medida do toolkit
 
+> **Adendo (2026-10-14):** a confirmação desta senha deixou de ser indireta — com um laboratório
+> Linux disponível, o **próprio binário** imprime `ACCESS GRANTED` (3 controles recusando). Ver
+> [adendo-round-8-3-8-4-wsl.md](adendo-round-8-3-8-4-wsl.md). O texto abaixo não foi reescrito.
+
 Alvo: `C:\Users\Admin\Desktop\Alvos\nivel 3` — **um ELF64 Linux**, não um PE. A rodada tinha
 dois entregáveis de peso igual: resolver o alvo e consertar **nesta rodada** o que o toolkit
 não dava conta. O segundo entregável acabou sendo o maior dos dois: o escopo validado do

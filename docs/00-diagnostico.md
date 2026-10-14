@@ -58,7 +58,7 @@ UnboxRE/
 | PowerShell | ✅ | Windows PowerShell **5.1** (sem `pwsh` 7) — scripts são escritos para 5.1 |
 | winget | ✅ | disponível |
 | Chocolatey | ✅ | disponível |
-| WSL | ⚠️ | binário presente, **nenhuma distro instalada** |
+| WSL | ✅ | **Ubuntu-26.04 em WSL1** (WSL 2.7.10.0; o firmware desta máquina não expõe VT-x, então WSL2 não sobe) + CPython 3.13 via `uv` — medido no [adendo 8.3/8.4](../reports/adendo-round-8-3-8-4-wsl.md) |
 | uv | ✅ | 0.11.32 (gerenciador Python moderno) |
 | **Zig** | ❌ | ausente ⇒ **bloqueia build do x64dbg-MCP** |
 | **7-Zip / cmake / gcc / clang / go / dotnet** | ❌ | ausentes ⇒ bloqueiam unpack de firmware, build nativo e tooling .NET |
@@ -81,12 +81,18 @@ maior consumidor; reserve ~60 GB se for rodar VMs com snapshots).
 | G4 | **`x64dbg/release/*/plugins/` não existe** | Nenhum plugin carrega (nem o MCP, nem ScyllaHide, nem xAnalyzer) | x64dbg não cria a pasta | criar + copiar plugins |
 | G5 | **Extensão Jython não instalada** | Scripts Ghidra em Python 2 (a maioria dos repositórios públicos) não rodam | o ZIP está em `Extensions/Ghidra/..._Jython.zip`, não extraído | setup-ghidra-extensions.ps1 |
 | G6 | **PyGhidra não instalado** (`pip install pyghidra`) | Sem Ghidra via Python 3 nativo — inviável automatizar análise em pipeline Python moderno | pacote ausente | `pip install pyghidra` |
-| G7 | **Sem laboratório Linux** | ELF/DWARF, Android, firmware, angr, Qiling, AFL++ — tudo indisponível | WSL sem distro | `wsl --install -d Ubuntu-24.04` |
+| G7 | **Laboratório Linux parcial** | ELF roda (validado com alvo real); Android, firmware, angr, Qiling, AFL++ e pwndbg seguem indisponíveis | distro presente mas **não provisionada** (`bootstrap-wsl.sh` nunca rodou) | `bash scripts/bootstrap-wsl.sh --apply` **dentro** da distro ([adendo](../reports/adendo-round-8-3-8-4-wsl.md)) |
 | G8 | **Sem isolamento de execução** | Analisar amostra desconhecida no host é irreversível | sem VM/sandbox | Windows Sandbox + VM com snapshot |
 
 > **Escopo desta rodada: Windows 10/11.** É aqui que o caminho crítico está validado.
 > G7 (laboratório Linux), o debug Linux/macOS e os formatos ELF/Mach-O ficam
 > **fora de escopo por ora** — são roadmap, não bloqueios do caminho Windows.
+>
+> *Atualização de 2026-10-14:* o laboratório Linux deixou de ser "nenhuma distro" — uma
+> distro WSL1 foi instalada e **validada com dois alvos reais** (um ELF64 e um pyzip com runtime
+> `.so` de CPython 3.13); ver [reports/adendo-round-8-3-8-4-wsl.md](../reports/adendo-round-8-3-8-4-wsl.md).
+> Isso muda o *gap*, não o escopo: Windows segue sendo o caminho validado, e o provisionamento
+> Linux (pwndbg, AFL++, angr, Qiling) **não** foi feito.
 
 ### 3.2 Gaps de cobertura (por domínio pedido)
 

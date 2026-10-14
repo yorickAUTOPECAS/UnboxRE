@@ -68,8 +68,21 @@ eles com a mesma mensagem, "sem assinatura MZ"). O que muda no ELF:
   callback do PE) e os imports são `DT_NEEDED` + os símbolos **indefinidos** do `.dynsym`;
 - **executar** o alvo no Windows não é possível: o loader aceita só PE e o erro dele é 193
   (`ERROR_BAD_EXE_FORMAT`), **não** `0xC000007B` — `diagnose-load` diz isso e mostra o status
-  real. Sem WSL com distro instalada, o caminho é estático (triagem + `disasm-range` +
-  `pe-read`) e, para o que for não-linear, emulação (item 7 do Cenário 12).
+  real. Sem distro instalada (`wsl -l -v` vazio), o caminho é estático (triagem + `disasm-range`
+  + `pe-read`) e, para o que for não-linear, emulação (item 7 do Cenário 12).
+- **com distro, execute — é o que separa "emulação concordando" de black-box.** Copie o alvo
+  para dentro da VM (o `src/` do caso nunca é executado no lugar) e rode com a candidata:
+
+```bash
+$ wsl -d Ubuntu -u root -- bash -lc 'cp /mnt/c/…/work/<alvo>/src/<alvo> /tmp/x && chmod +x /tmp/x && printf "%s\n" "$SENHA" | /tmp/x; echo "exit=$?"'
+```
+
+  Antes disso, meça o que o alvo faz **antes** da validação: anticheat/anti-debug que decide
+  caminho por `ptrace` (o `ptrace(PTRACE_TRACEME)` responde 0 num Linux normal e o alvo escolhe
+  a semente "sem debugger") muda a resposta esperada. Medido no round 8.3: `ACCESS GRANTED` com
+  o `ptrace` disponível e controles recusando. Duas ressalvas declaradas: **WSL1 não é um Linux
+  completo** (kernel `4.4.0-*` emulado — sem namespaces/eBPF/perf, e anti-debug fino pode
+  divergir), e se o firmware não expõe VT-x o WSL2 não sobe (`HCS_E_HYPERV_NOT_INSTALLED`).
 
 ### Alvo que não é imagem (container, `.pyc`, marshal)
 
@@ -86,6 +99,44 @@ corrompido e o processo morre com *access violation*. Medido no round 8.4 (o mes
 carregar. Os membros ELF/PE que saírem do container entram direto nos leitores de imagem
 (`triage-static`, `disasm-range`, `pe-read`); um membro ELF de extensão do CPython, porém, **não
 carrega no Windows** (erro 193) — rodar exige Linux/WSL.
+
+### Alvo Python que RODA: instrumente o interpretador, não o binário
+
+Quando o alvo é um zipapp/programa Python e a leitura não fecha — topo aplanado, strings
+construídas em runtime, extensão nativa que importa `_PyInterpreterState_SetEvalFrameFunc`
+(isto é: troca o avaliador de frames do CPython) —, o caminho curto **não** é Ghidra nem
+debugger nativo: é fazer o próprio CPython contar o que o alvo faz. Quem entrega o arquivo é o
+import automático de `sitecustomize` a partir do `PYTHONPATH` (e os launchers de zipapp
+costumam **repassar** o `PYTHONPATH` ao processo filho):
+
+```bash
+$ PYTHONPATH=$DEST/instr python3.13 alvo.pyz      # com $DEST/instr/sitecustomize.py
+```
+
+Quatro ganchos, em objetos **compartilhados** (o alvo faz `__import__('hashlib')` e recebe a
+versão já instrumentada, sem você reimplementar o loader dele):
+
+| Gancho | O que ele responde | Medido no round 8.4 |
+|---|---|---|
+| `hashlib`/`base64` + **dump** dos buffers >64 KiB | o que entra e o que sai de cada hash | `sha512` sobre 1.264.068 B (o buffer é cabeçalho de 64 B + o payload; o loader troca uma constante b85 por 80 zeros **antes** de hashear) |
+| pilha de quem chama `input()` | a pergunta é feita pelo alvo em Python ou por código nativo? | `<member>:132` → o payload, não o `.so` |
+| devolver a entrada como **subclasse de `str`** que registra `__eq__`/`encode`/… | o **valor esperado**, sem desofuscar nada | `__eq__('! ! ! ! ! ! ! !  TREE')` → senha, e a flag `CMO{builtins}` |
+| `print` com pilha | onde o "invalid/denied" é emitido | `print('invalid')` logo após a comparação |
+
+A subclasse de `str` é o detalhe que faz a diferença: por ser subclasse, ela tem **prioridade no
+`__eq__` refletido** — a comparação é capturada nas duas direções (`senha == X` e `X == senha`).
+
+Por que grep **não** acha essas strings: elas são montadas em runtime a partir de listas de
+inteiros do próprio marshal, na forma
+`''.join(chr((B[i] - c ^ A[i % len(A)]) & 255) …)`. Dá para decodificar estaticamente (e há
+validação barata: a tripla `([211,222,232,189], [189,173,148,229], 7)` tem de dar `exec`), mas a
+varredura por tentativa gera ruído demais — medido: 169.548 "decodificações printáveis" numa
+única passada. **Instrumentar em runtime é o método; a decodificação estática é conferência.**
+
+Limite declarado: isso só vê o que passa pelo nível Python. Checagem fechada dentro de código
+nativo não aparece aqui — para ela, o caminho é debugger/emulação (Cenário 12). E este harness
+ainda **não é ferramenta do toolkit**: vive como script do caso (`work/<alvo>/scripts/`), que não
+vai para o Git por regra.
 
 **Por quê antes de qualquer ferramenta pesada:** a resposta que decide o resto do
 plano é "este binário está empacotado/protegido ou é só lógica?". Se **não** houver

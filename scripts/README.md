@@ -16,7 +16,7 @@ não quebra nada, e nada é instalado/compilado/copiado sem uma flag explícita
 |---|---|---|---|
 | `fetch-tools.ps1` | Windows (PS 5.1/7) | baixa o núcleo de terceiros do upstream (Ghidra, x64dbg, REA, MCP), com checksum | com `-Apply` |
 | `fetch-tools.sh` | Git Bash / WSL | o mesmo (delega ao `.ps1`; no Linux faz ghidra+rea) | com `--apply` |
-| `health-check.ps1` | Windows (PS 5.1/7) | diagnóstico completo; `-Fix-Paths` cria diretórios e repara `GHIDRA_INSTALL_DIR`/`JAVA_HOME` | só com `-Fix-Paths` |
+| `health-check.ps1` | Windows (PS 5.1/7) | diagnóstico completo; `-Fix-Paths` cria diretórios e repara `GHIDRA_INSTALL_DIR`/`JAVA_HOME`; traz o check `wsl:distro` (alvo ELF/pyzip exige **distro**, e `wsl --status` responde sem ela) | só com `-Fix-Paths` |
 | `health-check.sh` | Git Bash / WSL | versão POSIX do diagnóstico | não |
 | `bootstrap-windows.ps1` | Windows | instala por perfil (winget/choco/pip/npm); o perfil `core` roda o `fetch` antes | com `-Apply` |
 | `bootstrap-wsl.sh` | WSL (Ubuntu) | instala o lado Linux (gdb, angr, pwndbg, gef, unblob…) — **fora de escopo por ora** (roadmap) | com `--apply` (pede confirmação; `--yes` pula) |

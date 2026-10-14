@@ -1,5 +1,11 @@
 # Round 8.4 — quarto alvo real (`nivel 4`): resultado técnico + fricção medida do toolkit
 
+> **Adendo (2026-10-14):** o alvo foi **fechado black-box** depois deste relatório — senha
+> `! ! ! ! ! ! ! !  TREE`, flag `CMO{builtins}` —, e duas conclusões daqui são **corrigidas** por
+> medição (o gate **não** estava atrás da runtime nativa; o que escondia a checagem era a
+> decodificação de strings em runtime). Ver [adendo-round-8-3-8-4-wsl.md](adendo-round-8-3-8-4-wsl.md).
+> O texto abaixo não foi reescrito.
+
 Alvo: `C:\Users\Admin\Desktop\Alvos\nivel 4` — **um zipapp do Python 3.13 protegido**, com
 uma **runtime nativa ELF** dentro. Nas quatro rodadas o alvo mudou de formato três vezes
 (PE → ELF → zipapp), e o aviso valeu: aqui não era nem PE, nem ELF, e **era** protegido.

@@ -95,7 +95,11 @@ function Get-CommandVersion {
     foreach ($flag in $VersionArgs) {
         try {
             $out = & $Name $flag 2>&1 | Where-Object { $_ -and "$_".Trim() -ne '' } | Select-Object -First 1
-            if ($out) { return ("$out".Trim() -replace '\s+', ' ') }
+            # Alguns executáveis escrevem UTF-16LE (o `wsl.exe` é um deles): capturado como
+            # texto, isso vira NUL entre cada caractere ("D\u0000i\u0000s...") e o detalhe sai
+            # ilegível no relatório. Medido nesta rodada no check 'host:wsl' — remover os NULs
+            # aqui é a correção no lugar certo, já que é a única porta de captura de versões.
+            if ($out) { return (("$out" -replace "`0", '').Trim() -replace '\s+', ' ') }
         } catch { }
     }
     return 'presente'
