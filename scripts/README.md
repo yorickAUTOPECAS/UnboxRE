@@ -26,6 +26,7 @@ não quebra nada, e nada é instalado/compilado/copiado sem uma flag explícita
 | `scan-secrets.ps1` | Windows (pwsh) | procura segredos e arquivos indevidos | não |
 | `gen-mcp-config.mjs` | Node | gera/valida as configs MCP por cliente | com `--apply` (grava em `config/mcp/generated/`) |
 | `identify-protections.mjs` | Node | triagem de packer/protetor por assinatura (UPX, VMProtect, Themida…) | não |
+| `diagnose-load.mjs` | Node | "por que este .exe sai com 0xC000007B?": vícios de loader (seções esvaziadas, dir em seção sem dados, ASLR sem reloc) + o status real da execução | não |
 | `check-consistency.mjs` | Node | regressão offline: doc ↔ código ↔ licenças divergindo | não |
 | `verify-licenses.mjs` | Node (rede) | confere cada licença contra a fonte primária | não |
 | `smoke-mcp.mjs` | Node | handshake MCP real (initialize + tools/list) contra o REA | não |
