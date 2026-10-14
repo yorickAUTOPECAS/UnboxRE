@@ -342,4 +342,17 @@ Material do alvo e scripts do caso ficam em `work/` e **não** são publicados.
 
 ## 10. CI
 
-<!-- CI-RUN -->
+Commit desta rodada: `1c6109c`. Run
+[38624848912](https://github.com/yorickAUTOPECAS/UnboxRE/actions/runs/38624848912) — **verde**,
+4/4 jobs (medido com `gh run watch --exit-status`, exit 0):
+
+```console
+✓ Documentação e estrutura in 16s
+✓ Scan de segredos e binários in 7s
+✓ Licenças contra a fonte primária in 31s
+✓ Ponte MCP do REA sobe e responde in 17s
+```
+
+`verify-licenses.mjs` local, re-rodado depois das edições: `[OK] 79 licenças declaradas batem com
+a fonte primária` (exit 0) — nenhuma ferramenta de terceiros entrou nesta rodada (o script novo é
+Node puro, sem dependência).
