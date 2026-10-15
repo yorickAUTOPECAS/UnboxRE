@@ -299,8 +299,9 @@ com as duas armadilhas medidas: colisão de maiúscula em NTFS e `-cp` com camin
 
 ## 6. Verificação e limitações
 
-CI do commit deste relatório: registrado no commit seguinte (o run é posterior ao push), no
-histórico da conversa — nenhum número de run é escrito aqui antes de existir.
+CI do commit deste relatório (`65a7dc8`, conteúdo da rodada): run **38757625194** — **success**
+nos 4 jobs (Documentação e estrutura · Licenças contra a fonte primária · Ponte MCP do REA ·
+Scan de segredos e binários) — <https://github.com/yorickAUTOPECAS/UnboxRE/actions/runs/38757625194>.
 
 ```console
 $ node scripts/check-consistency.mjs      # docs <-> código <-> licenças (offline)
