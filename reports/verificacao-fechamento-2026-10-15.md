@@ -326,3 +326,23 @@ $ gh run view 38763593399 --json status,conclusion,jobs
 ```
 
 `https://github.com/yorickAUTOPECAS/UnboxRE/actions/runs/38763593399`
+
+**Nota de operação, medida nesta rodada (não escondo o run vermelho):** o commit `b3f491a`
+(run `38763758162`) **falhou** no job de licenças — a leitura de
+`http://www.rohitab.com/apimonitor` (API Monitor) não voltou após 4 tentativas (1s, 2s, 4s) e o
+script sai **1**, de propósito: sem fonte primária lida, a licença não é declarada verificada.
+É **host instável**, não divergência — o commit não muda licença nenhuma. Re-executando só o job
+que falhou (`gh run rerun --failed`), o mesmo commit fecha **4/4 verdes**:
+
+```console
+$ gh run rerun 38763758162 --failed
+$ gh run view 38763758162 --json status,conclusion,jobs
+{"status":"completed","conclusion":"success",
+ "jobs":[ Licenças contra a fonte primária ✓ · Ponte MCP do REA sobe e responde ✓ ·
+          Scan de segredos e binários ✓ · Documentação e estrutura ✓ ]}
+```
+
+`https://github.com/yorickAUTOPECAS/UnboxRE/actions/runs/38763758162`
+
+Fica registrado porque é o comportamento certo do job: ele **prefere falhar** a verificar menos —
+e é bom saber, ao ver um run vermelho, que a primeira hipótese pode ser o site do fornecedor.
