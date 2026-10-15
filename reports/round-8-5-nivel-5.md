@@ -399,3 +399,28 @@ técnicos para a próxima rodada ficam registrados:
    resto, em vez de amostrar.
 
 O que falta é o **transporte**, não a matemática: o modelo corrigido já reproduz o alvo.
+
+---
+
+## 8. Verificação desta continuação
+
+CI do commit desta continuação: `CI` run **38748969041** — **success** em `d838949`
+(<https://github.com/yorickAUTOPECAS/UnboxRE/actions/runs/38748969041>).
+
+```console
+$ node scripts/check-consistency.mjs
+  [OK] nenhuma divergência encontrada (198 verificações).        # exit 0
+$ node scripts/verify-licenses.mjs
+  [OK] 79 licenças declaradas batem com a fonte primária.        # exit 0
+$ powershell -File scripts/park-patch-run.ps1 -Target <alvo> -Entrada 'A' `
+      -HookPos '0x4695' -FreezeIat 'exit=0x46644'                # smoke do instrumento
+  gravador pos-call - desmontagem do stub (confira antes de confiar na medicao):
+      48ba…  movabs rdx, <scratch>   488902  mov [rdx], rax
+      4889c1 mov rcx, rax            0f31    rdtsc         c3 ret   (5 instrucoes, 19 bytes)
+--- SCRATCH: retorno do hook = 0x4819071427dfacce
+```
+
+Comando e saída de cada medição desta continuação estão no §7 (medida do frame/estado, as três
+hipóteses do modelo, os dois digests, as quatro sondas de transporte e o controle negativo). O que
+**não** funcionou está declarado no §7.6 — a senha não foi fechada, e o motivo medido é o
+transporte, não o modelo.
