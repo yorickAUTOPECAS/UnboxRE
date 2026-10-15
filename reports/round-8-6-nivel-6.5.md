@@ -13,7 +13,7 @@ toolkit **dentro da rodada**.
 | Formato | **JAR** (Forge 1.8.9) · 801 entradas · 722 classes · class file major 49/50/52 |
 | Trava | pacote `antiLeak-1a2786b1-…`: `Loader.class` (4.692 B) + `x64-windows.dll` (**31.453.712 B**) |
 | Nativos | **32 classes · 100 métodos `native`** (+1 no `Loader`) · 1 marcador de nome 40-hex por classe |
-| Artefato deste round | `Myau-src/build/Myau-sem-trava.jar` — 1.594.838 B · **0 nativos · 0 DLL · 0 `System.load`** |
+| Artefato deste round | `Myau-src/build/Myau-sem-trava.jar` — **1.594.838 B · 800 entradas · 722 classes** · sha256 `60f7d4a0f9726ce92d8ba7643343520b8bdae0422cbe4dba0b09c4e06108bf70` · **0 nativos · 0 DLL · 0 `System.load`** |
 | O que **não** fechou | o corpo dos 68 nativos reais (ver §6 — a lógica vive só na DLL) |
 
 ---
@@ -328,6 +328,14 @@ $ node scripts/identify-protections.mjs <dll>   # o fix do UPX (§5.1)
    validado contra `tools/decomp_input.jar` (as 216 classes pristinas, extraídas por stream do
    original) — sei que é o mesmo material porque as 52 cópias do JAR final batem byte-a-byte
    com ele, e o `.lib` extraído em runtime tem o md5 do recurso dele.
+4. **Registro consolidado do artefato (uma build, um hash).** A medição final, feita direto no
+   caminho entregue (sem cópia intermediária), é a da tabela do topo: **1.594.838 B · 800
+   entradas · 722 classes · sha256 `60f7d4a0f9726ce92d8ba7643343520b8bdae0422cbe4dba0b09c4e06108bf70`**.
+   O resumo em prosa de uma das mensagens da rodada citou "1.582.838 B" — foi **erro de
+   transcrição na conversa, não um segundo build**: `cmp` entre o artefato do caso
+   (`work/nivel-6.5-myau/unpacked/Myau-unlocked.jar`) e o entregue dá **idênticos byte-a-byte**,
+   com o mesmo sha256, e o tamanho nunca mudou (transform, cópia e triagem final imprimem
+   1.594.838). Qualquer número diferente que apareça em algum lugar é ruído, não medida.
 
 **Notas de rodapé (gaps pequenos, registrados sem interromper a rodada):** o `build.ps1` do alvo
 aponta para um JAR que não existe mais; `tools/` (a tentativa anterior) está sem README, então o
