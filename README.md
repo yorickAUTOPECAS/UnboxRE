@@ -84,9 +84,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\bootstrap-windows.
 # 3) Prove the AI bridge is alive (real MCP handshake over stdio)
 node .\scripts\smoke-mcp.mjs
 
-# 4) Generate MCP config for your client (writes nothing without --apply)
-node .\scripts\gen-mcp-config.mjs --client claude-desktop --check
+# 4) Generate the MCP config block for your client. No flag = DRY (lists every client).
+#    --apply writes config/mcp/generated/<client>.json inside the repo (Git-ignored);
+#    --install is the one that writes to the client's real config path (your call).
+node .\scripts\gen-mcp-config.mjs
 node .\scripts\gen-mcp-config.mjs --client claude-desktop --apply
+node .\scripts\gen-mcp-config.mjs --client claude-desktop --check   # the client's own file
 
 # 5) Re-check the machine
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\health-check.ps1
@@ -98,6 +101,12 @@ first, so step 2 alone covers steps 1–2. Clients for `gen-mcp-config`: `claude
 `claude-code`, `cursor`, `windsurf`, `gemini`, `vscode`, `codex` — run
 `node scripts/gen-mcp-config.mjs --list` to see them all with their config paths. In Git Bash the
 equivalents are `bash scripts/health-check.sh` and `bash scripts/fetch-tools.sh`.
+
+**`--check` is about the client's file, not ours.** It verifies the client's own config and exits
+**1** when that file does not exist yet — on a machine with no AI client installed, all seven
+clients report `[WARN] … não existe` and exit 1 (measured). That is the tool telling you where the
+file belongs, not a broken tool; `--apply` (repo-local) never touches the client, and `--install`
+is the flag that does.
 
 **Verified on this machine, on 2026-10-15** (trimmed to the first lines; `-Json` reproduces the
 whole report, one object per check):

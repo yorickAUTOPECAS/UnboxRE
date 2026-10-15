@@ -133,7 +133,7 @@ auditoria estourou 240 s de timeout por isso). Em CI/agente, sempre passe os par
 
 ## 3. Links internos: 176 links, 49 arquivos — e o que estava quebrado
 
-Auditoria mecânica própria (extrai `[texto](destino)`, resolve relativo ao arquivo, confere
+Auditoria mecânica própria (extrai os links markdown `[texto]` + `(destino)`, resolve relativo ao arquivo, confere
 existência **e** âncora). Antes das correções:
 
 ```console
@@ -346,3 +346,30 @@ $ gh run view 38763758162 --json status,conclusion,jobs
 
 Fica registrado porque é o comportamento certo do job: ele **prefere falhar** a verificar menos —
 e é bom saber, ao ver um run vermelho, que a primeira hipótese pode ser o site do fornecedor.
+
+### 6.1 A checagem final pegou mais uma coisa: o passo 4 do README novo
+
+Ao conferir o README **já commitado** contra a ferramenta que ele manda rodar, o passo 4 estava
+errado na **semântica**, não na sintaxe:
+
+```console
+$ node scripts/gen-mcp-config.mjs --help
+  [DRY ] Claude Desktop → …\config\mcp\generated\claude-desktop.json
+        (use --apply para gravar; --install para gravar no local real do cliente)
+
+$ node scripts/gen-mcp-config.mjs --client claude-desktop --apply
+  [WROTE] …\UnboxRE\config\mcp\generated\claude-desktop.json     exit=0
+$ node scripts/gen-mcp-config.mjs --client claude-desktop --check
+  [WARN] Claude Desktop …\Claude\claude_desktop_config.json
+         · não existe: …           0 ok · 1 com problema           exit=1
+```
+
+Ou seja: `--apply` grava **dentro do repo** (`config/mcp/generated/`, que é gitignored — linha 41
+do `.gitignore`), `--install` é quem grava no caminho real do cliente, e `--check` responde sobre
+o **arquivo do cliente** — sai **1** em máquina sem cliente instalado. Medido nos 7 clientes
+(`claude-desktop`, `claude-code`, `cursor`, `windsurf`, `gemini`, `vscode`, `codex`): **todos exit
+1** aqui, porque nenhum cliente de IA está instalado nesta máquina.
+
+O README passou a dizer exatamente isso (o que cada flag escreve, e que `--check` em 1 é o
+comportamento certo). Fica aqui porque é o exemplo do padrão: **documentar um comando sem rodá-lo
+é como o erro entra** — e foi a última coisa que a rodada pegou.
