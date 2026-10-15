@@ -313,3 +313,16 @@ Cada número acima veio de um comando desta rodada, e os artefatos brutos estão
 `work/audit-final-20261015/` (`health.json`, `help-after.txt`, `link-audit.txt`, `mcpsmoke.txt`,
 `fetch-plan.txt`, `bootstrap-plan.txt`, `exemplos/`). Para repetir: rode os mesmos comandos —
 dry-run não muda nada no disco e `--help` não toca em alvo nenhum.
+
+Run que inclui **este relatório** (`0facd44`) — também **4/4 verdes**:
+
+```console
+$ gh run view 38763593399 --json status,conclusion,jobs
+{"status":"completed","conclusion":"success",
+ "jobs":[{"conclusion":"success","name":"Documentação e estrutura"},
+         {"conclusion":"success","name":"Licenças contra a fonte primária"},
+         {"conclusion":"success","name":"Ponte MCP do REA sobe e responde"},
+         {"conclusion":"success","name":"Scan de segredos e binários"}]}
+```
+
+`https://github.com/yorickAUTOPECAS/UnboxRE/actions/runs/38763593399`
