@@ -181,6 +181,11 @@ nem no fold (desmonte conferido) — está no **laço de ops**, em algum op que 
 O caminho para fechar é bisseccionar por op com o mesmo instrumento (hook no corpo do caso, que é um
 endereço distinto por op, e leitura do array de registradores) — não reescrever o modelo no escuro.
 
+> **RESOLVIDO na continuação (§7).** A bissecção por op não foi necessária: o defeito era um input
+do laço que nunca tinha sido medido — `regs[4..7]` **não começa zerado**, começa com o *estado*.
+O parágrafo acima fica como registro do estado da rodada em que foi escrito; a correção e a
+validação contra o alvo estão no §7.
+
 **Não fechado (limitação declarada, sem maquiagem):** com o laço ainda divergente, a **inversão da
 senha não fecha** — e não vou apresentar a senha do modelo como se fosse a do alvo. Há ainda um
 segundo obstáculo, também medido: a senha que o modelo inverte é de **bytes binários** (32 B), e a
@@ -228,6 +233,11 @@ $ node scripts/verify-licenses.mjs        # licenças vs fonte primária (rede)
 $ powershell -File scripts/park-patch-run.ps1 … -HookPos '0x4695'   # smoke do tool promovido
 ```
 
+> **Continuada depois, no §7**: o defeito do modelo foi localizado, corrigido e validado contra o
+alvo (dois digests medidos, reproduzidos), o transporte da entrada foi medido com quatro sondas, e
+o instrumento ganhou quatro correções de fricção. A **senha continua não fechada**, agora com o
+obstáculo nomeado (§7.6).
+
 Limitações, sem maquiagem:
 
 - **Senha não fechada** (§4) — o próximo passo é medir a *entrada efetiva da VM* num caso de 32
@@ -263,3 +273,129 @@ $ powershell -File scripts/park-patch-run.ps1 -Target <alvo> -Entrada 'A' \
 
 Os três rodaram com `exit=0`, o alvo foi encerrado pela ferramenta e **nenhum processo ficou vivo**
 (`tasklist` vazio). O `-HookCall` já havia sido verificado na §3 (retorno `(ptr,len)` de `0x1000`).
+
+---
+
+## 7. Continuação (mesmo alvo): o defeito do modelo **localizado, corrigido e validado contra o alvo**
+
+O §4 parou com o modelo divergindo em `r0`/`r2`/`r3` e acertando `r1`, e com o próximo passo
+declarado (bissecção por op). A bissecção **não** foi necessária: a causa era um input do laço que
+nunca tinha sido medido — o conteúdo inicial de `regs[4..7]`.
+
+### 7.1 O que foi medido
+
+Medindo, no ponto do *seed* (`RVA 0x8149`), o frame base `S` **e** o ponteiro do estado ao mesmo
+tempo (`-HookStub` com template próprio, sem `{orig}`: o stub repete o store original e o
+deslocamento do replay foi recalculado para o `rsp` do stub — ver armadilha 6 do instrumento):
+
+```console
+$ powershell -File scripts/park-patch-run.ps1 -Target <alvo> -Entrada 'A' `
+      -FreezeIat 'exit=0x46644' -HookStub '0x8149=<template em work/crackme-n5/scratch/tpl-a3.txt>'
+    +0x00..+0x80 (16 qwords):
+      rdi=0x…   rsi=0x47   r9=0x0   rax=0x41   r8=0x75f6ba43239c0987
+      rdx=0xf5aaed574222270a   rcx=0x119b83de39985411   S=0x00000080723ed6f0
+      estado=S+0x210   estado[0..3]=0x243f6a8885a308d3 0x13198a2e03707344
+                      0xa4093822299f31d0 0x082efa98ec4e6c89
+```
+
+- `rsi = 0x47 = 71` palavras — confirma de novo a contagem do bytecode;
+- `S = 0x80723ed6f0` e **ponteiro do estado `= S + 0x210`**: o estado **não** se sobrepõe ao arquivo
+  de registradores (que fica em `[S+0x20..S+0x58]`);
+- e o arquivo de registradores no início do laço (lido no instante do segundo `op1`):
+
+```console
+    regs[0..7] = 0x41 0x75f6ba43239c0987 0xf5aaed574222270a 0x119b83de39985411
+                 0x243f6a8885a308d3 0x13198a2e03707344 0xa4093822299f31d0 0x0
+```
+
+**Os quatro de cima carregam o ESTADO, não zero.** E o bytecode só *lê* um deles antes de escrever:
+`regs[5]`, por `op4 dst0 src5` (`r0 ^= r5`) em **toda** rodada. `regs[6]`/`regs[7]` são sobrescritos
+pelos dois primeiros `op1` (`dst 6`/`dst 7`) e `regs[4]` nunca é lido — é exatamente por isso que o
+sintoma era "acerta `r1`, erra `r0`/`r2`/`r3`".
+
+### 7.2 O teste que fecha
+
+```console
+$ python - <<'PY'      # três hipóteses, contra o estado MEDIDO no alvo
+A) regs[4..7] = 0 (modelo antigo)   r0 diverge   r1 OK   r2 diverge   r3 diverge
+B) regs[4..7] = IVs                r0 0x9f4545e5e82a175a  r1 0xb04846b6876fdfc4
+                                   r2 0x2828a8cfa31db08e  r3 0x01059e8d84d8a983  == medido, 4/4
+C) só regs[5] = IVS[1]             == medido, 4/4
+```
+
+O caso A reproduz **exatamente** a divergência do §4; B e C reproduzem os quatro registradores
+medidos. Correção aplicada no modelo do caso (`work/crackme-n5/scripts/n5-vm.py`, artefato fora do
+Git por regra): `derive_seed` devolve `regs[4..7] = IVS`; `run_vm` completa os quatro de cima com o
+estado quando recebe só os quatro do seed; e a **inversão** passou a desfazer também o `r0 ^= r5`
+(`inv_round`: `r0b = ((y - K) & MASK) ^ IVS[1]`). Sem esse XOR a frente e a volta erravam *juntas* —
+o autoteste do modelo passava e o alvo não (essa é a parte que enganava).
+
+**Validação contra o alvo, não contra o modelo:**
+
+```console
+entrada A        modelo=0x4819071427dfacce   medido no alvo=0x4819071427dfacce   OK
+entrada (vazio)  modelo=0xee7a0f64084de00f   medido no alvo=0xee7a0f64084de00f   OK
+```
+
+Dois digests medidos no alvo, em execuções diferentes (o de `"A"` nesta continuação; o da entrada
+vazia numa rodada anterior), reproduzidos pelo modelo corrigido.
+
+### 7.3 Transporte: medido com quatro sondas
+
+```console
+$ powershell -File scripts/park-patch-run.ps1 -Target <alvo> -EntradaHex <hex> `
+      -HookCall '0x4659=0x1000' -SeguirRetorno -FreezeIat 'exit=0x46644'
+  41 ×32        -> (ptr,len)=32  bytes 41 41 41 …   (entregue VERBATIM)
+  c3 a9 41 41   -> (ptr,len)= 4  bytes c3 a9 41 41  (UTF-8 válido passa igual)
+  41 02 42 43   -> (ptr,len)= 4  bytes 41 02 42 43  (byte de controle passa)
+  41 80 42 43   -> (ptr,len)= 0                     (UM byte inválido zera o transporte todo)
+```
+
+Regra medida: **a entrada inteira tem de ser UTF-8 válida**; então é entregue byte a byte. Um
+candidato de 32 bytes binários **não chega à VM**, e isso ficou provado pela medição do digest:
+
+```console
+$ … -EntradaHex 4302c5d2…177c -HookPos '0x4695' -FreezeIat 'exit=0x46644'
+  retorno do hook = 0xee7a0f64084de00f     # == digest da entrada VAZIA (linha acima)
+```
+
+### 7.4 Controle negativo (alvo original, sem patch nenhum)
+
+```console
+$ powershell -File scripts/park-patch-run.ps1 -Target <alvo> -Entrada 'senha-errada-123'
+enter password:
+[-] ACCESS DENIED
+
+[i] license hwid: 4D474CAD
+[i] environment: bare-metal | sysroot: C:\WINDOWS
+```
+
+### 7.5 Fricção do toolkit → corrigida nesta continuação
+
+| Armadilha medida | Correção no instrumento |
+|---|---|
+| stub com **encoding errado** (`48 8B 02` = `mov rax,[rdx]` em vez de `49 8B 02` = `mov rax,[r10]`, REX.B): passa em qualquer conferência de *tamanho* e o alvo cai com `0xC0000005` sem pista | `park-patch-run.ps1` agora **desmonta o próprio stub** antes de aplicar (capstone — a dependência que o `disasm-range.py` já declara) e **avisa** quando o capstone não está lá em vez de fingir que validou |
+| leitura das áreas depois de o alvo terminar (sem `-FreezeIat`) vinha "ilegível" e parecia que o hook não pegou (o valor lido seria zero) | a mensagem agora diz o que fazer: `-FreezeIat 'exit=<rva>'` |
+| área de hook **não usado** era listada como "ilegível em 0x0" (`[IntPtr]::Zero` é *verdadeiro* em PowerShell, e só `$scratch` era inicializado) | as quatro áreas são inicializadas e comparadas explicitamente; rodada sem hook diz isso, em vez de inventar leitura |
+| stub **sem `{orig}`** (= replay manual) não estava documentado: o destino tem de ser recalculado (dentro do stub o `rsp` é `S-8` menos os pushes do próprio stub) | armadilha 6 do cabeçalho, com o caso concreto desta rodada |
+
+### 7.6 O que ficou provado, e o que não
+
+**Provado:** o defeito do modelo (o arquivo de registradores inicia com o estado), a correção, e a
+correção **validada contra o alvo** (dois digests medidos, reproduzidos); a regra do transporte
+(UTF-8 válido ou `len=0`); o controle negativo no alvo original.
+
+**Não fechado (limitação declarada, sem maquiagem):** a **senha continua não fechada**, por um
+obstáculo estreito e agora nomeado — o seed é um valor de 32 bytes e o alvo exige que esses 32 bytes
+sejam **UTF-8 válidos**. A busca direta sobre os seeds válidos (amostrados por `r1,r2,r3`) tem
+probabilidade ~5e-10 por amostra; medido: **zero acertos em 200.000 tentativas**. Os dois caminhos
+técnicos para a próxima rodada ficam registrados:
+
+1. **inverter a mistura do seed** — `local68[idx] = ~(a ^ c) - 2*(a & chunk & c)` com
+   `c = a + rotl(chunk,17)` (identidade conferida: `~(novo) == (a^c) + 2*(a & chunk & c)`). Com a
+   inversa, entradas de 33..48 bytes (que passam pela mistura) deixam os bytes livres da entrada sob
+   controle, e 16 dos 32 bytes do seed passam a ser escolhidos;
+2. **inverter a partir de entrada de texto** — fixar os bytes imprimíveis do seed e resolver o
+   resto, em vez de amostrar.
+
+O que falta é o **transporte**, não a matemática: o modelo corrigido já reproduz o alvo.

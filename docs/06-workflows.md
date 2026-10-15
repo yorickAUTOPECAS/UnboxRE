@@ -165,14 +165,28 @@ e a contagem de palavras (`0x47`); `-HookSeed` devolve os quatro qwords do seed;
 `rax` do digest. Os **quatro** hooks têm área de scratch própria e a ferramenta **lê todas** as
 áreas que existirem na rodada (antes escolhia uma e escondia as outras).
 
-As sete armadilhas medidas (estão no cabeçalho do script e no relatório da rodada 8.5):
+As armadilhas medidas (estão no cabeçalho do script e no relatório da rodada 8.5, §5 e §7.5):
 `call stub` tem de reconstruir **`rsp` do call** (não só o alinhamento de 16 — se a função recebe 5º
 argumento na pilha, `rsp` errado = `0xC0000005`); store absoluto de 64 bits só via `movabs` (use
-`r11` quando o retorno usa `rax`/`rdx`); stub montado à mão erra encoding — **valide com
-`python scripts/disasm-range.py`** numa cópia do alvo; cada modo de hook precisa de área própria; e
-**rejeição pode ser transporte, não senha** (entrada binária que a função de preparação zera vira
-digest de entrada vazia — instrumente o call de preparação antes de concluir que a senha está
-errada); e **o instrumento também tem de ser medido**: o `-HookStub`/`-HookSeed` só tinham área se
+`r11` quando o retorno usa `rax`/`rdx`); stub montado à mão erra encoding — **o script agora
+desmonta o próprio stub antes de aplicar** (capstone, a dependência que o `disasm-range.py` já
+declara; sem capstone ele avisa em vez de fingir que validou) e, na dúvida,
+`python scripts/disasm-range.py` sobre uma cópia do alvo responde o resto; cada modo de hook precisa
+de área própria; e **rejeição pode ser transporte, não senha** — instrumente o call de preparação
+antes de concluir que a senha está errada. Medido no alvo da 8.5: a preparação exige que a entrada
+**inteira** seja UTF-8 válida e entrega ela mesma, byte a byte, quando é (um byte inválido faz
+`len=0` e o digest passa a ser o da entrada vazia — foi assim que um candidato de 32 bytes binários
+"errou" a senha sem nunca chegar à VM).
+
+Mais três, desta continuação: **stub sem `{orig}` deixa o replay por sua conta** (se o template não
+repete os 5 bytes originais, o destino tem de ser recalculado: dentro do stub o `rsp` é `S-8` menos
+os pushes do próprio stub); **para hook, sempre com `-FreezeIat`**, porque sem o congelamento o
+alvo termina antes da leitura e as áreas vêm "ilegíveis" (parece hook que não pegou, e o zero
+parece medição do alvo); e **área de hook não usado não é leitura** — o script inicializa as quatro
+e só lê as que existem (antes listava as inexistentes como "ilegível em 0x0", porque
+`[IntPtr]::Zero` é *verdadeiro* em PowerShell).
+
+E **o instrumento também tem de ser medido**: o `-HookStub`/`-HookSeed` só tinham área se
 `-HookCall` fosse usado junto (sozinhos escreviam no **endereço 0**, e o sintoma era "o hook não
 pegou"), e a leitura escolhia uma área só. Os dois defeitos apareceram no smoke da ferramenta — não
 na leitura do código — e foram corrigidos nela, não no caso.

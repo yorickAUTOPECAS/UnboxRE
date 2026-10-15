@@ -49,6 +49,23 @@
 #      UTF-8), bytes binarios podem virar entrada VAZIA e o digest passa a ser constante. Antes de
 #      concluir "senha errada", instrumente a funcao que prepara a entrada e LE o que ela devolveu
 #      (-HookCall + -SeguirRetorno). Foi o que separou "modelo errado" de "transporte errado".
+#      MEDIDO (8.5, continuacao) no alvo `nivel 5`: a preparacao exige que a entrada INTEIRA seja
+#      UTF-8 valida e devolve ela mesma, byte a byte, quando e' (`AAAA...` -> 32 bytes; `c3 a9 41
+#      41` -> os mesmos 4 bytes); UM byte invalido (`41 80 42 43`) zera o transporte (len=0) e o
+#      digest passa a ser o da entrada vazia. E' por isso que um candidato BINARIO nao chega na VM.
+#   6. Stub sem `{orig}` = o replay e' SEU. Se o template nao repete os 5 bytes originais, quem
+#      reproduz a instrucao e' o proprio stub — e o destino tem de ser recalculado: dentro do stub
+#      o rsp e' (rsp do site - 8) menos os pushes que o proprio stub faz, entao o mesmo endereco
+#      pede outro deslocamento. Medido no 8.5: leituras em [rsp+0x38] com DOIS pushes e replay
+#      manual do store em [rsp+0x38] (o site gravava [rsp+0x20] com rsp = S).
+#   7. Sem `-FreezeIat` a leitura das areas chega DEPOIS de o alvo terminar: elas vem "ilegiveis"
+#      (e o valor lido seria zero). O sintoma engana duas vezes — parece que o hook nao pegou e o
+#      zero parece medicao do alvo. Para hook, use sempre o freeze; a mensagem agora pede isso.
+#   8. Todo stub montado aqui e' DESMONTADO automaticamente antes de ser aplicado (capstone, a
+#      mesma dependencia que `scripts/disasm-range.py` ja' declara). Custa ~20 ms e teria pego
+#      sozinho o defeito desta rodada: `48 8B 02` desmonta como `mov rax,[rdx]` e o correto para
+#      `mov rax,[r10]` e' `49 8B 02` (REX.B) — o alvo caia com 0xC0000005 sem dizer por que, e a
+#      conferencia "o stub tem o tamanho certo?" nao pega isso.
 #
 # Uso:
 #   powershell -File scripts/park-patch-run.ps1 -Target <exe> -Entrada 'abc' #       -HookCall '0x4659=0x1000' -SeguirRetorno -Patch '0x46de=48b92e90ad62fdad8f2ac3'
@@ -97,6 +114,40 @@ public struct MEMORY_BASIC_INFORMATION {
 '@
 function Get-Err { [Runtime.InteropServices.Marshal]::GetLastWin32Error() }
 
+$script:TemCapstone = $null
+function Show-Stub {
+    <#
+        ARMADILHA MEDIDA (round 8.5, continuacao) — e' a armadilha 3 acontecendo de novo, so' que
+        desta vez o defeito era um REX: `48 8B 02` desmonta como `mov rax, [rdx]`, e o correto para
+        `mov rax, [r10]` e' `49 8B 02` (REX.B). Um stub assim passa em qualquer conferencia que so'
+        olhe o TAMANHO: o alvo cai com 0xC0000005 e a mensagem nao diz por que. Desmontar o stub
+        antes de aplicar custa ~20 ms e mostra o defeito em texto — foi assim, a mao, que o defeito
+        foi pego nesta rodada. Agora o script faz isso sozinho, com o mesmo capstone que o toolkit
+        ja' declara (scripts/disasm-range.py); sem capstone ele AVISA em vez de fingir que validou.
+    #>
+    param([string]$Nome, [string]$Hex)
+    if ($null -eq $script:TemCapstone) {
+        $script:TemCapstone = $false
+        try { & python -c "import capstone" 2>$null | Out-Null; $script:TemCapstone = ($LASTEXITCODE -eq 0) } catch { }
+    }
+    if (-not $script:TemCapstone) {
+        Write-Host ("  {0}: capstone ausente — NAO desmontei o stub; valide o template antes" -f $Nome)
+        return
+    }
+    $py = @'
+import sys, capstone as cs
+h = sys.argv[1]
+md = cs.Cs(cs.CS_ARCH_X86, cs.CS_MODE_64)
+n = 0
+for i in md.disasm(bytes.fromhex(h), 0):
+    print("      %-22s %s %s" % (i.bytes.hex(), i.mnemonic, i.op_str))
+    n += 1
+print("      (%d instrucoes, %d bytes)" % (n, len(bytes.fromhex(h))))
+'@
+    Write-Host ("  {0} — desmontagem do stub (confira antes de confiar na medicao):" -f $Nome)
+    $py | & python - $Hex
+}
+
 $pi = New-Object System.Diagnostics.ProcessStartInfo
 $pi.FileName = (Resolve-Path $Target).Path
 $pi.RedirectStandardInput = $true
@@ -135,7 +186,13 @@ foreach ($par in $Patch) {
         (($lidos | ForEach-Object { '{0:x2}' -f $_ }) -join ''), $hex)
 }
 
+# Cada modo tem a SUA area, e todas comecam zeradas: antes, so' $scratch era inicializado, entao
+# um modo nao usado deixava a variavel $null — e `$null -ne [IntPtr]::Zero` e' verdadeiro, o que
+# listava a area inexistente como "ilegivel em 0x0".
 $scratch = [IntPtr]::Zero
+$posScratch = [IntPtr]::Zero
+$stubScratch = [IntPtr]::Zero
+$seedScratch = [IntPtr]::Zero
 if ($HookCall.Count -gt 0) {
     # Hook de call-site: troca `call <fn>` por `call <stub>`, e o stub chama a funcao original,
     # grava o retorno (rax) em SCRATCH e volta. Serve para VER o valor que o alvo calcula.
@@ -172,6 +229,7 @@ if ($HookCall.Count -gt 0) {
         $fnHex = ([BitConverter]::ToString([BitConverter]::GetBytes([int64]$fn)) -replace '-','')
         $sHex = ([BitConverter]::ToString([BitConverter]::GetBytes([int64]$hookScratch)) -replace '-','')
         $hexStub = $tpl.Replace('{fn}', $fnHex).Replace('{scratch}', $sHex)
+        Show-Stub 'hook de call-site' $hexStub
         $sc = [byte[]]([regex]::Matches($hexStub, '..') | ForEach-Object { [Convert]::ToByte($_.Value, 16) })
         if (-not [PR.Mem]::WriteProcessMemory($h, $stub, $sc, $sc.Length, [ref]$wr)) { throw "write stub falhou" }
         $rel = [int64]$stub - ([int64]$call + 5)
@@ -216,7 +274,9 @@ if ($HookPos.Count -gt 0) {
         $tpl = '48BA{scratch}488902{orig}C3'
         $sHex = ([BitConverter]::ToString([BitConverter]::GetBytes([int64]$posScratch)) -replace '-','')
         $oHex = (($orig | ForEach-Object { '{0:x2}' -f $_ }) -join '')
-        $sc = [byte[]]([regex]::Matches($tpl.Replace('{scratch}', $sHex).Replace('{orig}', $oHex), '..') | ForEach-Object { [Convert]::ToByte($_.Value, 16) })
+        $hexStub = $tpl.Replace('{scratch}', $sHex).Replace('{orig}', $oHex)
+        Show-Stub 'gravador pos-call' $hexStub
+        $sc = [byte[]]([regex]::Matches($hexStub, '..') | ForEach-Object { [Convert]::ToByte($_.Value, 16) })
         if (-not [PR.Mem]::WriteProcessMemory($h, $stub, $sc, $sc.Length, [ref]$wr)) { throw "write stub falhou" }
         $patchCall = [byte[]]::new(5)
         $patchCall[0] = 0xE8
@@ -259,7 +319,9 @@ if ($HookStub.Count -gt 0) {
         # escrevia no ENDERECO 0 -> 0xC0000005 no alvo e leitura de zeros (parecia "hook nao pegou").
         $sHex = ([BitConverter]::ToString([BitConverter]::GetBytes([int64]$stubScratch)) -replace '-','')
         $oHex = (($orig | ForEach-Object { '{0:x2}' -f $_ }) -join '')
-        $sc = [byte[]]([regex]::Matches($tpl.Replace('{scratch}',$sHex).Replace('{orig}',$oHex), '..') | ForEach-Object { [Convert]::ToByte($_.Value, 16) })
+        $hexStub = $tpl.Replace('{scratch}', $sHex).Replace('{orig}', $oHex)
+        Show-Stub 'stub proprio' $hexStub
+        $sc = [byte[]]([regex]::Matches($hexStub, '..') | ForEach-Object { [Convert]::ToByte($_.Value, 16) })
         if (-not [PR.Mem]::WriteProcessMemory($h, $stub, $sc, $sc.Length, [ref]$wr)) { throw "write stub falhou" }
         $patchCall = [byte[]]::new(5); $patchCall[0] = 0xE8
         [BitConverter]::GetBytes([int32]$dist).CopyTo($patchCall, 1)
@@ -297,7 +359,9 @@ if ($HookSeed.Count -gt 0) {
         $tpl = '49BB{scratch}4989034D8943084989531049894B18{orig}C3'
         $sHex = ([BitConverter]::ToString([BitConverter]::GetBytes([int64]$seedScratch)) -replace '-','')
         $oHex = (($orig | ForEach-Object { '{0:x2}' -f $_ }) -join '')
-        $sc = [byte[]]([regex]::Matches($tpl.Replace('{scratch}',$sHex).Replace('{orig}',$oHex), '..') | ForEach-Object { [Convert]::ToByte($_.Value, 16) })
+        $hexStub = $tpl.Replace('{scratch}', $sHex).Replace('{orig}', $oHex)
+        Show-Stub 'gravador de seed' $hexStub
+        $sc = [byte[]]([regex]::Matches($hexStub, '..') | ForEach-Object { [Convert]::ToByte($_.Value, 16) })
         if (-not [PR.Mem]::WriteProcessMemory($h, $stub, $sc, $sc.Length, [ref]$wr)) { throw "write stub falhou" }
         $patchCall = [byte[]]::new(5); $patchCall[0] = 0xE8
         [BitConverter]::GetBytes([int32]$dist).CopyTo($patchCall, 1)
@@ -385,11 +449,17 @@ if ($OutDir -ne '') {
 # ARMADILHA MEDIDA: variavel de tipo IntPtr vinda de um modo que NAO rodou chega como $null, e
 # [IntPtr]$null dentro do ReadProcessMemory estoura ("nao e possivel converter nulo"); por isso a
 # lista e montada so com as areas alocadas e o cast e feito na hora de usar.
+# ARMADILHA MEDIDA (round 8.5, continuacao): `[IntPtr]::Zero` e' "verdadeiro" em PowerShell, so'
+# que a condicao aqui era `if ($scratch)` — ou seja, listava TAMBEM os modos que nao rodaram, com
+# o endereco 0, e cada rodada imprimia "scratch de call-site (-HookCall) ilegivel em 0x0". Isso
+# parece defeito do alvo/do hook e nao e': e' area que nem foi alocada. A comparacao agora e'
+# explicita, e a mensagem de falha (abaixo) so' aparece para area que EXISTE.
 $areas = @()
-if ($seedScratch) { $areas += [pscustomobject]@{ Nome = 'seed (-HookSeed)'; End = $seedScratch; Modo = 'seed' } }
-if ($stubScratch) { $areas += [pscustomobject]@{ Nome = 'stub proprio (-HookStub)'; End = $stubScratch; Modo = 'stub' } }
-if ($posScratch) { $areas += [pscustomobject]@{ Nome = 'pos-call (-HookPos)'; End = $posScratch; Modo = 'pos' } }
-if ($scratch) { $areas += [pscustomobject]@{ Nome = 'call-site (-HookCall)'; End = $scratch; Modo = 'call' } }
+if ($seedScratch -ne [IntPtr]::Zero) { $areas += [pscustomobject]@{ Nome = 'seed (-HookSeed)'; End = $seedScratch; Modo = 'seed' } }
+if ($stubScratch -ne [IntPtr]::Zero) { $areas += [pscustomobject]@{ Nome = 'stub proprio (-HookStub)'; End = $stubScratch; Modo = 'stub' } }
+if ($posScratch -ne [IntPtr]::Zero) { $areas += [pscustomobject]@{ Nome = 'pos-call (-HookPos)'; End = $posScratch; Modo = 'pos' } }
+if ($scratch -ne [IntPtr]::Zero) { $areas += [pscustomobject]@{ Nome = 'call-site (-HookCall)'; End = $scratch; Modo = 'call' } }
+if ($areas.Count -eq 0) { Write-Host "(nenhum hook pedido: nada a ler alem da saida do alvo)" }
 foreach ($area in $areas) {
     $bufS = [byte[]]::new(64)
     $rdS = [IntPtr]::Zero
@@ -431,7 +501,13 @@ foreach ($area in $areas) {
             } else { Write-Host "    (nao segui o ponteiro: valor fora de faixa ou memoria ilegivel)" }
         }
         Write-Host ("    hex bruto: {0}" -f ((0..7 | ForEach-Object { '{0:x2}' -f $bufS[$_] }) -join ' '))
-    } else { Write-Host ("scratch de {0} ilegivel em 0x{1:x} (processo saiu antes da leitura?)" -f $area.Nome, [int64]$area.End) }
+    } else {
+        # ARMADILHA MEDIDA (round 8.5, continuacao): sem -FreezeIat o alvo TERMINA antes desta
+        # leitura (o caminho pos-entrada dura <1 ms) e a area aparece "ilegivel" — o sintoma
+        # engana duas vezes: parece que o hook nao pegou, e o valor medido (zero) parece do alvo.
+        # Aqui a mensagem diz o que fazer.
+        Write-Host ("scratch de {0} ilegivel em 0x{1:x} — o alvo saiu antes da leitura; use -FreezeIat 'exit=<rva>' (o alvo fica vivo e a area continua legivel)" -f $area.Nome, [int64]$area.End)
+    }
 }
 [PR.Mem]::CloseHandle($h) | Out-Null
 if (-not $p.HasExited) { $p.Kill() }
