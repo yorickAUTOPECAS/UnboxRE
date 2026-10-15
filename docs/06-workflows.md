@@ -34,6 +34,7 @@ cp acme.exe ../unpacked/acme.work.exe
 # 3) Triagem ESTÁTICA — nenhum destes abre GUI, debugger ou Ghidra
 cd ../..   # raiz do toolkit
 node scripts/triage-archive.mjs work/acme-app-2.1/unpacked/acme.work.pkg        # é CONTAINER (zip/pyz/whl)? o que tem dentro?
+node scripts/triage-java.mjs work/acme-app-2.1/src/acme.jar                     # é JVM (JAR/.class)? quem tem nativo, quem extrai e carrega DLL
 node scripts/identify-protections.mjs work/acme-app-2.1/unpacked/acme.work.exe   # está empacotado? com o quê?
 node scripts/triage-static.mjs work/acme-app-2.1/unpacked/acme.work.exe --refs   # o que ele é: TLS, imports, strings e onde são usadas
 node scripts/diagnose-load.mjs work/acme-app-2.1/unpacked/acme.work.exe          # ele carrega? (0xC000007B)
@@ -56,6 +57,48 @@ leitura tipada: a semente `u32` que o `imul` multiplica, a máscara de 16 bytes 
 parser de PE na hora — foi o que aconteceu nas rodadas 8.1 e 8.2, com bug próprio na
 primeira vez. Confirmação black-box da resposta, quando o alvo é de console:
 `node scripts/diagnose-load.mjs <alvo> --stdin '<candidata>'`.
+
+### Alvo JVM (JAR + código nativo) na triagem
+
+Um alvo **JAR** não é imagem nem container comum: os cinco comandos do Cenário 0 leem PE/ELF
+e o `triage-archive` identifica o ZIP e os membros, mas **ninguém lê bytecode** — o que decide o
+plano (quem tem método `native`, quem extrai e carrega biblioteca) fica dentro das classes. Foi
+assim na rodada 8.6 (`nivel 6.5`: cliente Forge 1.8.9 + trava anti-leak), e a resposta saiu de
+`javap` em laço até este script existir:
+
+```bash
+node scripts/triage-java.mjs work/<alvo>/src/<alvo>.jar    # class file, nativos, loader JNI, binários embutidos
+```
+
+O que a saída decide (tudo medido no alvo):
+
+- **métodos `native`** = a lógica dessas classes **não está no bytecode**. No alvo: 32 classes,
+  100 nativos, e **um `native` de nome 40-hex por classe** — um marcador chamado pelo
+  `<clinit>` (`javap -c` mostra, no início do clinit, `invokestatic Loader.registerNativesForClass`
+  seguido do marcador). Nesse caso a reconstrução em Java não sai de decompilador: o corpo vive
+  na biblioteca nativa.
+- **quem extrai e carrega** a ferramenta acha sozinha: classe que referencia
+  `java/lang/System.load` **e** `Class.getResourceAsStream`/`FileOutputStream`. No alvo, o
+  `<clinit>` dela escreve `native/<6 chars>.lib` (nome aleatório por execução, `*.lib` anterior
+  apagado) e chama `System.load`.
+- **binários embutidos** aparecem no inventário com o tamanho (31.453.712 B de `.dll` aqui) — é
+  esse arquivo que você tria em seguida com `identify-protections`/`triage-static`.
+
+**Medido (armadilha do host, não do alvo):** carregar qualquer classe protegida **trava a JVM**
+dentro do `JNI_OnLoad` da DLL — 4 execuções (JRE 8 e JDK 21, na thread principal e numa thread
+de trabalho com AWT vivo), CPU praticamente parada, nenhuma thread criada, e sem dependência
+faltando (`VCRUNTIME140`/`MSVCP140`/`D3DCOMPILER_47` presentes). Alvo JVM que "não sai do lugar"
+sem mensagem nenhuma: olhe aqui primeiro (e lembre que o `-cp` do Windows **não** aceita caminho
+com espaço no meio de entradas separadas por `;` — foi o que quebrou uma das medições desta
+rodada; copie o artefato para um caminho sem espaço).
+
+**Outra armadilha medida (esta custa material):** JAR com entradas que só diferem por maiúscula
+(`myau/H.class` e `myau/h.class` — **88 pares** no alvo) **não se extrai** em NTFS sem pasta
+case-sensitive: um dos dois é sobrescrito em silêncio. No alvo, `binaries/myau/H.class` acabou
+com o conteúdo da classe `h`, e a contagem de "cópias do original" saiu errada por causa disso.
+O `triage-java.mjs` conta e avisa **antes**; para extrair de fato, habilite case-sensitivity na
+pasta (`fsutil file setcasesensitiveinfo <dir> enable`) ou leia por stream, sem materializar os
+dois nomes.
 
 ### Alvo Linux (ELF) na triagem
 

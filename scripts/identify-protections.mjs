@@ -147,8 +147,13 @@ if (buf.length >= 0x40 && buf[0] === 0x7f && buf[1] === 0x45 && buf[2] === 0x4c 
   if (shnum === 0) {
     add("Sem tabela de seções", "medium", "ELF sem section headers — o UPX (`--strip-sections`) e packers que reescrevem a imagem fazem exatamente isso; a triagem por nome de seção deixa de valer e sobra a via estrutural");
   }
-  if (lowerNames.some((n) => n.includes("upx")) || /UPX!/.test(text)) {
-    add("UPX", "high", "seção UPX* ou marcador UPX! — packer UPX (o mesmo dos alvos PE; o binário empacotado traz um stub que desempacota em memória)");
+  // Marcador e nome de seção são evidências de FORÇA diferente (ver o mesmo corte no
+  // branch PE): o UPX de verdade deixa o marcador `UPX!`; nome de seção é imitável.
+  if (/UPX!/.test(text)) {
+    add("UPX", "high", "marcador UPX! presente — packer UPX (o binário empacotado traz um stub que desempacota em memória)");
+  } else if (lowerNames.some((n) => n.includes("upx"))) {
+    add("Nome de seção UPX sem marcador UPX!", "medium",
+      `seções ${elfSections.filter((s) => s.name.toLowerCase().includes("upx")).map((s) => s.name).join(", ")} — nenhum marcador "UPX!" no arquivo: nome de seção é imitável (protetor/packer que reescreve a imagem pode reusar o nome). Confirme pelo layout, não pelo nome`);
   }
   if (lowerNames.includes(".vmp0") || lowerNames.includes(".vmp1") || /VMProtect/i.test(text)) {
     add("VMProtect", "high", "seção .vmpN ou string VMProtect — proteção por virtualização");
@@ -283,8 +288,19 @@ const strings = buf.toString("latin1"); // coarse; enough for ASCII markers
 function anySection(pred) { return sections.some(pred); }
 function nameIs(...names) { return names.some((n) => lowerNames.includes(n.toLowerCase())); }
 
-if (nameIs("UPX0", "UPX1", "UPX2") || lowerNames.some((n) => n.startsWith(".upx")) || /UPX!/.test(strings)) {
-  add("UPX", "high", "seções UPX0/UPX1 ou marcador UPX! — packer UPX"); 
+// UPX: marcador > nome de seção. MEDIDO no alvo `nivel 6.5` (DLL nativa de 31 MB do
+// antiLeak): 16 seções, uma delas `.upx1` (virt 9216000, raw 0) e outra `.boot` com o
+// entrypoint, e **nenhum** "UPX!" no arquivo inteiro (grep 0 ocorrências, `strings`
+// idem). A versão anterior dava `UPX (high)` só pelo nome de seção e o veredito saía
+// "PROVAVELMENTE PROTEGIDO" por causa disso — um falso positivo que esconde a leitura
+// certa (empacotador próprio com nome de seção imitado). Nome de seção sozinho = medium.
+const upxMarker = /UPX!/.test(strings);
+const upxSectionNames = sections.filter((s) => /^UPX\d$/i.test(s.name) || s.name.toLowerCase().startsWith(".upx"));
+if (upxMarker) {
+  add("UPX", "high", "marcador UPX! no arquivo — packer UPX");
+} else if (upxSectionNames.length) {
+  add("Nome de seção UPX sem marcador UPX!", "medium",
+    `seção(ões) ${upxSectionNames.map((s) => s.name).join(", ")} e nenhum "UPX!" no arquivo: nome de seção é imitável — protetor ou packer próprio reusa o nome para despistar. Trate pelo layout (uma seção sem dados no arquivo + entrypoint em seção de alta entropia), não pelo nome`);
 }
 if (nameIs(".vmp0", ".vmp1", ".vmp2") || /VMProtect|\.vmp\d/i.test(strings)) {
   add("VMProtect", "high", "seções .vmpN ou string VMProtect — proteção por virtualização");
