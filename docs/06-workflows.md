@@ -443,7 +443,7 @@ encryption dos ofuscadores .NET mais comuns, e o resultado é *legível* — o q
 completamente a economia do trabalho. Se falhar, vá para ILSpy/dnSpy e leia o IL.
 
 Alternativas open-source: **ILSpy** (leitura + decompile C#), **dotPeek** [gratuito,
-não-OSS]. Ver [02-catalogo-ferramentas.md](02-catalogo-ferramentas.md#5-domínio-e-formatos).
+não-OSS]. Ver [02-catalogo-ferramentas.md](02-catalogo-ferramentas.md#5-domínio-d--formatos-e-plataformas).
 
 ---
 

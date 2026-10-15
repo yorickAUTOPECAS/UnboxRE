@@ -43,9 +43,20 @@ import { basename } from "node:path";
 
 const args = process.argv.slice(2);
 const JSON_OUT = args.includes("--json");
+// `--help` responde 0, como todos os irmãos (.mjs) do toolkit. Antes caía no ramo
+// "sem arquivo" e saía 2 — quem encadeia scripts lê 2 como "não consegui ler o arquivo",
+// então pedir ajuda parecia erro (medido na auditoria de fechamento).
+if (args.length === 0 || args.includes("--help") || args.includes("-h")) {
+  console.log("uso: node scripts/identify-protections.mjs <arquivo> [--json]   (PE ou ELF)");
+  console.log("  triagem de packer/protetor: assinatura > estrutura > estatística, em PE e ELF");
+  console.log("  força da evidência: marcador UPX! = alto; nome de seção UPX*/.upx* sozinho = fraco");
+  console.log("  --json   saída JSON (mesmos campos da saída humana)");
+  console.log("  exit: 0 analisado (mesmo se empacotado) · 2 arquivo ilegível ou formato desconhecido");
+  process.exit(0);
+}
 const file = args.find((a) => !a.startsWith("--"));
 if (!file) {
-  console.error("uso: node scripts/identify-protections.mjs <arquivo> [--json]   (PE ou ELF)");
+  console.error("uso: node scripts/identify-protections.mjs <arquivo> [--json]   (PE ou ELF)   [--help para detalhes]");
   process.exit(2);
 }
 

@@ -90,6 +90,24 @@ node .\scripts\gen-mcp-config.mjs --client claude-desktop --apply
 carrega o motivo de existir e a licença; o bootstrap nunca instala nada fora do
 catálogo declarado.
 
+## Como ver o uso de um script
+
+| Tipo | O que funciona |
+|---|---|
+| `.mjs` e `.py` | `node scripts/<script>.mjs --help` · `python scripts/disasm-range.py --help` — saem **0** e imprimem uso, flags e exit codes |
+| `.ps1` | o **bloco de cabeçalho** do próprio arquivo: `Get-Content scripts\new-case.ps1 -TotalCount 60` |
+
+**Medido (auditoria de fechamento, 2026-10-15), e é limitação do host, não dos nossos
+arquivos:** neste Windows/powershell 5.1, `Get-Help .\scripts\<script>.ps1` responde
+`HelpNotFound` — e responde igual para um script **mínimo de controle** (bloco `<# .SYNOPSIS #>`
++ `param()`), então nada que a gente escreva no arquivo conserta isso; `pwsh` (PowerShell 7) não
+está instalado aqui. Pior: `-?` sai **mudo** (exit 0, sem texto) e `-Help` é rejeitado como
+parâmetro inexistente. Por isso o caminho documentado acima é o bloco de cabeçalho, e o mapa de
+propósito de cada script é esta tabela. Rodar um script **sem os parâmetros obrigatórios** falha
+na hora com `MissingMandatoryParameter: <nome>` (bom para automação) — mas, num terminal
+interativo, o PowerShell **pede o valor** e o script fica esperando: em agente/CI, sempre passe
+os parâmetros.
+
 ## Convenções
 
 - **Dry-run sempre primeiro.** Sem `-Apply`, o script mostra o plano exato.

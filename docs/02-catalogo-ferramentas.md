@@ -6,7 +6,7 @@ você, seis meses depois) precisa: **o que faz**, **quando usar**, **como usar**
 
 > **Como ler os comandos.** `PS>` = PowerShell no host Windows. `$` = bash (Git Bash
 > ou WSL). `r2>` = prompt do radare2. `ghidra>` = script Ghidra. Caminhos assumem a
-> raiz do toolkit (`C:\Users\Admin\Desktop\UnboxRE`) e as variáveis de
+> raiz do toolkit (onde você clonou — `<raiz-do-toolkit>`, ex.: `C:\tools\UnboxRE`) e as variáveis de
 > [config/env/unboxre.env.example](../config/env/unboxre.env.example).
 
 ---
@@ -80,7 +80,9 @@ existir (G4 no diagnóstico); ScyllaHide/Scylla/xAnalyzer entram nela.
 | **Licença** | MIT (o próprio REA); os submódulos têm licenças próprias |
 
 **Limitação crítica no Windows:** o provider Ghidra é **P0, somente leitura, só PE
-x86/x64** ([rea-main/docs/windows-ghidra-p0.md](../rea-main/docs/windows-ghidra-p0.md)).
+x86/x64**. A fonte é o doc do upstream: [docs/windows-ghidra-p0.md](https://github.com/morluto/rea/blob/main/docs/windows-ghidra-p0.md).
+Ele **não vem no pacote npm** — o `rea-main/` instalado não tem `docs/` (medido: o
+`README.md` de lá aponta para esse caminho e o link morre dentro do próprio pacote).
 Anotação/renomeação só via Ghidra GUI ou headless.
 
 ### 1.4 x64dbg-MCP Server 1.0.0 `⬜ não compilado`
@@ -546,7 +548,8 @@ x64dbg descarta em silêncio), e o dump passa a ser conferido mesmo sem original
 | **cast (Foundry)** | inspeção/desassemblagem EVM | `MIT` |
 
 - **Quando usar:** contratos inteligentes, análise de bytecode on-chain.
-- **Nota:** o REA já cobre EVM (`docs/evm-bytecode.md`).
+- **Nota:** o REA já cobre EVM (doc do upstream: [docs/evm-bytecode.md](https://github.com/morluto/rea/blob/main/docs/evm-bytecode.md) —
+  também ausente do pacote npm instalado em `rea-main/`).
 
 ### d.9 Go e Rust (recuperação de símbolos) `⬜`
 

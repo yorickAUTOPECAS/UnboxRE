@@ -100,8 +100,10 @@ conectar → o plugin não carregou (pasta `plugins/` inexistente — G4).
 | Controle genérico | `ExecuteDebuggerCommand`, `EvalExpression`, `Assemble`, `CommentOrLabelAtAddress` |
 | Eventos | `GetEventLog`, `ClearEventLog`, `WaitForEvent` |
 
-O catálogo completo (72–84 tools) está no README do próprio plugin:
-[../x64dbg-mcp-server-main/README.md](../x64dbg-mcp-server-main/README.md).
+O catálogo completo (84 tools no README do upstream) está em
+[duty1g/x64dbg-mcp-server](https://github.com/duty1g/x64dbg-mcp-server#tools). O plugin é
+instalado do release pré-compilado — **não há clone da fonte** em
+`x64dbg-mcp-server-main/`, então esse caminho não existe numa máquina preparada.
 
 **Ao parar em código que o packer ainda pode reescrever, use `SetHardwareBreakpoint`, não
 `SetBreakpoint`:** o breakpoint de software grava `int3` (`0xCC`) na memória e, ao parar, o
@@ -160,7 +162,8 @@ reescreve `config/env/unboxre.env` com o Ghidra de `ghidra/` e o JDK 21 LTS.
 ### 3.3 Limitação no Windows (importante)
 
 O provider Ghidra no Windows é **experimental, somente leitura, apenas PE x86/x86-64**
-(ver [../rea-main/docs/windows-ghidra-p0.md](../rea-main/docs/windows-ghidra-p0.md)).
+(doc do upstream: [docs/windows-ghidra-p0.md](https://github.com/morluto/rea/blob/main/docs/windows-ghidra-p0.md) —
+o pacote npm não traz `docs/`, então `rea-main/docs/` não existe).
 Não conte com anotar/renomear funções pelo REA no Windows — use a GUI do Ghidra ou
 `analyzeHeadless` com scripts próprios. O REA brilha mesmo em: leitura semântica,
 Android, firmware, rede, JS/Electron, WASM, .NET.
@@ -170,7 +173,7 @@ Android, firmware, rede, JS/Electron, WASM, .NET.
 ```json
 {
   "mcpServers": {
-    "rea": { "command": "node", "args": ["C:\\Users\\Admin\\Desktop\\UnboxRE\\rea-main\\scripts\\rea.mjs", "mcp"] }
+    "rea": { "command": "node", "args": ["<raiz-do-toolkit>\\rea-main\\scripts\\rea.mjs", "mcp"] }
   }
 }
 ```

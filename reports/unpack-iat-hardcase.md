@@ -373,7 +373,7 @@ node scripts/rebuild-iat.mjs --dump unpacked/dump-raw-bpfix.exe --out unpacked/d
      --modules evidence/20261013-3-modules-do-debugger.txt --mem evidence/mem --oep 0x19c0
 node scripts/reset-load-state.mjs --dump unpacked/dump-fixed4.exe --out unpacked/dump-final4.exe
 node scripts/verify-dump.mjs --dump unpacked/dump-fixed4.exe --original ../packer-demo/clean.exe
-powershell -File ./scripts/run-and-probe.ps1 -Target unpacked/dump-final4.exe   # exit 0
+powershell -File work/iat-hardcase/scripts/run-and-probe.ps1 -Target unpacked/dump-final4.exe   # script DO CASO (exit 0)
 ```
 
 Cobertura da IAT, artefato por artefato (`evidence/20261014-72-iat-cobertura.txt`) — “slot
